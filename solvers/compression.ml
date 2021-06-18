@@ -6,6 +6,7 @@ open Gc
 open Physics
 open Pregex
 open Tower
+open Line
 open Utils
 open Type
 open Program
