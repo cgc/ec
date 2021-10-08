@@ -3,6 +3,7 @@ from dreamcoder.program import *
 from dreamcoder.dreamcoder import *
 from dreamcoder.utilities import *
 import pickle, os
+import joblib
 
 currdir = os.path.abspath(os.path.dirname(__file__))
 
@@ -16,12 +17,29 @@ def tasks_from_grammar_boards():
          loc = next(zip(*np.where(start)))
          yield GridTask(f'grammar_boards.pkl[{idx}]', start=start, goal=board, location=loc)
 
+def tasks_people_gibbs():
+    import numpy as np
+    boards = np.load(f'{currdir}/people_sampled_boards.npy')
+    for idx, board in enumerate(boards):
+        start = np.zeros(boards.shape[1:])
+        location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
+        start[location] = 1
+        yield GridTask(
+            f'people_sampled_boards.npy[{idx}]',
+            start=start, goal=board, location=location)
+        '''
+        start = np.zeros(boards.shape[1:])
+        yield GridTask(
+            f'people_sampled_boards.npy[{idx}]',
+            start=start, goal=board, location=(0, 0))
+        '''
+
 def tree_tasks():
     st = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0]])
     loc = (2, 0)
     return [
-#        GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
-#        GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
+        #GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
+        #GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
         GridTask(f'both', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]])),
         GridTask(f'both-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 0]])),
         GridTask(f'both-rightboth', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 1, 0], [1, 1, 1]])),
@@ -30,15 +48,21 @@ def tree_tasks():
 
 
 class GridState:
-    def __init__(self, start, location, *, orientation=0, pendown=True):
+    def __init__(self, start, location, *, orientation=0, pendown=True, history=None):
         self.grid = start
         self.location = location
-        self.orientation = orientation # [0, 1, 2, 3]
+        self.orientation = orientation % 4 # [0, 1, 2, 3]
         self.pendown = pendown
+        if history is not None:
+            history += [dict(self.__dict__)]
+        self.history = history
+    def next_state(self, **kwargs):
+        args = dict(self.__dict__, **kwargs)
+        return GridState(args.pop('grid'), args.pop('location'), **args)
     def left(self):
-        return GridState(self.grid, self.location, orientation=self.orientation - 1, pendown=self.pendown)
+        return self.next_state(orientation=self.orientation - 1)
     def right(self):
-        return GridState(self.grid, self.location, orientation=self.orientation + 1, pendown=self.pendown)
+        return self.next_state(orientation=self.orientation + 1)
     def move(self):
         dx, dy = [
             (-1, 0), # up
@@ -54,13 +78,21 @@ class GridState:
         y = prevy + dy
         if not (0 <= y < ylim):
             y = prevy
+        grid = self.grid
         if self.pendown:
-            grid = np.copy(self.grid)
+            grid = np.copy(grid)
             grid[x, y] = 1
-        return GridState(grid, (x, y), orientation=self.orientation, pendown=self.pendown)
+        return self.next_state(grid=grid, location=(x, y))
     def dopendown(self):
-        return GridState(self.grid, self.location, orientation=self.orientation, pendown=True)
+        return self.next_state(pendown=True)
     def dopenup(self):
+        return self.next_state(pendown=False)
+    def _hack(xxx):
+        # delete!
+        return GridState(self.grid, self.location, orientation=self.orientation - 1, pendown=self.pendown)
+        return GridState(self.grid, self.location, orientation=self.orientation + 1, pendown=self.pendown)
+        return GridState(grid, (x, y), orientation=self.orientation, pendown=self.pendown)
+        return GridState(self.grid, self.location, orientation=self.orientation, pendown=True)
         return GridState(self.grid, self.location, orientation=self.orientation, pendown=False)
     def __repr__(self):
         return f'GridState({self.grid}, {self.location}, orientation={self.orientation}, pendown={self.pendown})'
@@ -71,8 +103,11 @@ class GridTask(Task):
         self.start = start
         self.goal = goal
         self.location = location
-        super().__init__(name, arrow(tline_cont,tline_cont), [], features=[])
-        self.specialTask = ("GridTask", {"start": self.start, "goal": self.goal, "location": self.location})
+        super().__init__(name, arrow(tgrid_cont,tgrid_cont), [], features=[])
+        self.specialTask = ("GridTask", {
+            "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
+            "location": tuple(map(int, location)),
+        })
 
     def logLikelihood(self, e, timeout=None):
         yh = executeGrid(e, GridState(self.start, self.location), timeout=timeout)
@@ -117,10 +152,13 @@ def parseGrid(s):
 
 
 
-def make_continuation(prop):
-    return lambda k: lambda s: k(getattr(s, prop)())
+def _grid_left(k): return lambda s: k(s.left())
+def _grid_right(k): return lambda s: k(s.right())
+def _grid_move(k): return lambda s: k(s.move())
+def _grid_dopendown(k): return lambda s: k(s.dopendown())
+def _grid_dopenup(k): return lambda s: k(s.dopenup())
 
-def _embed(body):
+def _grid_embed(body):
     def f(k):
         def g(s):
             identity = lambda x: x
@@ -129,18 +167,21 @@ def _embed(body):
             # result in same value, but $1 should be incorrect & terminate program?)
             ns = body(identity)(s)
             # We keep the grid state, but restore the agent state
-            ns = GridState(ns.grid, s.location, orientation=s.orientation, pendown=s.pendown)
+            #ns = GridState(ns.grid, s.location, orientation=s.orientation, pendown=s.pendown)
+            ns = s.next_state(grid=ns.grid)
             return k(ns)
         return g
     return f
 
 # TODO still not clear to me what types are doing in Python; how is this bound? Does it require definition in ocaml?
-tline_cont = baseType("grid_cont")
+tgrid_cont = baseType("grid_cont")
 primitives = [
-    Primitive(f"grid_{prop}", arrow(tline_cont, tline_cont), make_continuation(prop))
-    for prop in ['left', 'right', 'move', 'dopendown', 'dopenup']
-] + [
-    Primitive("grid_embed", arrow(arrow(tline_cont, tline_cont), tline_cont, tline_cont), _embed),
+    Primitive("grid_left", arrow(tgrid_cont, tgrid_cont), _grid_left),
+    Primitive("grid_right", arrow(tgrid_cont, tgrid_cont), _grid_right),
+    Primitive("grid_move", arrow(tgrid_cont, tgrid_cont), _grid_move),
+    Primitive("grid_dopendown", arrow(tgrid_cont, tgrid_cont), _grid_dopendown),
+    Primitive("grid_dopenup", arrow(tgrid_cont, tgrid_cont), _grid_dopenup),
+    Primitive("grid_embed", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_embed),
 ]
 
 def executeGrid(p, state, *, timeout=None):
@@ -149,7 +190,15 @@ def executeGrid(p, state, *, timeout=None):
         return runWithTimeout(lambda : p.evaluate([])(identity)(state),
                               timeout=timeout)
     except RunWithTimeout: return None
-    except: return None
+
+def parseArgs(parser):
+    parser.add_argument(
+        "-f",
+        dest="DELETE_var",
+        help="just adding this here to capture a jupyter notebook variable",
+        default='x',
+        type=str)
+    parser.add_argument("--task", dest="task", default="grammar")
 
 if __name__ == '__main__':
     # this is just making sure this is all wired up.
@@ -183,33 +232,51 @@ if __name__ == '__main__':
 
     # Done with tests above
 
-    train = [
-        GridTask("test case", start, goal, location)
-    ]
-    train = list(tasks_from_grammar_boards())
-    train = tree_tasks()
-    test = train
+    train_dict = dict(
+        grammar=tasks_from_grammar_boards(),
+        people_gibbs=tasks_people_gibbs(),
+        tree=tree_tasks(),
+    )
 
-    g0 = Grammar.uniform(primitives, continuationType=tline_cont)
+    g0 = Grammar.uniform(
+        primitives,
+        # when doing grid_cont instead, we only consider $0
+        # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
+        continuationType=arrow(tgrid_cont,tgrid_cont))
     arguments = commandlineArguments(
         #iterations=1,
         #enumerationTimeout=1,
         #maximumFrontier=10,
-        enumerationTimeout=90, activation='tanh',
+        enumerationTimeout=30,
+        solver='ocaml',
+        compressor="ocaml",
+        activation='tanh',
         iterations=3, recognitionTimeout=3600,
         # TODO what does this arity do? seems to relate to grammar?
         a=3,
         maximumFrontier=10, topK=2, pseudoCounts=30.0,
         helmholtzRatio=0.5, structurePenalty=1.,
-               solver='python',
-               compressor="pypy",
-        CPUs=1)
+        extras=parseArgs,
+
+        #enumerationTimeout=90, # need this for python
+        #solver='python',
+        #compressor="pypy",
+
+        CPUs=1,
+    )
+    del arguments['DELETE_var']
+    task = arguments.pop('task')
+    train = list(train_dict[task])
+    test = train
+
     generator = ecIterator(g0, train,
                            testingTasks=test,
                            **arguments)
-    for result in generator:
+    for iter, result in enumerate(generator):
         print('another iter')
         print('-' * 100)
         print('-' * 100)
         print()
         print()
+        fn = f'{currdir}/output-task{task}-iter{iter}.bin'
+        joblib.dump(dict(result=result,train=train,arguments=arguments), fn)

@@ -7,6 +7,7 @@ open Physics
 open Pregex
 open Tower
 open Line
+open Grid
 open Utils
 open Type
 open Program

@@ -4,6 +4,7 @@ open Physics
 open Pregex
 open Tower
 open Line
+open Grid
 (* open Vs *)
 open Differentiation
 open TikZ
