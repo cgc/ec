@@ -38,8 +38,8 @@ def tree_tasks():
     st = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0]])
     loc = (2, 0)
     return [
-        #GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
-        #GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
+        GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
+        GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
         GridTask(f'both', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]])),
         GridTask(f'both-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 0]])),
         GridTask(f'both-rightboth', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 1, 0], [1, 1, 1]])),
@@ -87,13 +87,6 @@ class GridState:
         return self.next_state(pendown=True)
     def dopenup(self):
         return self.next_state(pendown=False)
-    def _hack(xxx):
-        # delete!
-        return GridState(self.grid, self.location, orientation=self.orientation - 1, pendown=self.pendown)
-        return GridState(self.grid, self.location, orientation=self.orientation + 1, pendown=self.pendown)
-        return GridState(grid, (x, y), orientation=self.orientation, pendown=self.pendown)
-        return GridState(self.grid, self.location, orientation=self.orientation, pendown=True)
-        return GridState(self.grid, self.location, orientation=self.orientation, pendown=False)
     def __repr__(self):
         return f'GridState({self.grid}, {self.location}, orientation={self.orientation}, pendown={self.pendown})'
 
@@ -109,7 +102,9 @@ class GridTask(Task):
             "location": tuple(map(int, location)),
         })
 
-    def logLikelihood(self, e, timeout=None):
+    def logLikelihood(self, e, timeout=None, noassert=False):
+        if not noassert:
+            assert False, 'This is out of date...'
         yh = executeGrid(e, GridState(self.start, self.location), timeout=timeout)
         if yh is not None and np.all(yh.grid == self.goal): return 0.
         return NEGATIVEINFINITY
@@ -175,13 +170,15 @@ def _grid_embed(body):
 
 # TODO still not clear to me what types are doing in Python; how is this bound? Does it require definition in ocaml?
 tgrid_cont = baseType("grid_cont")
-primitives = [
+baseprimitives = [
     Primitive("grid_left", arrow(tgrid_cont, tgrid_cont), _grid_left),
     Primitive("grid_right", arrow(tgrid_cont, tgrid_cont), _grid_right),
     Primitive("grid_move", arrow(tgrid_cont, tgrid_cont), _grid_move),
+    Primitive("grid_embed", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_embed),
+]
+primitives = baseprimitives + [
     Primitive("grid_dopendown", arrow(tgrid_cont, tgrid_cont), _grid_dopendown),
     Primitive("grid_dopenup", arrow(tgrid_cont, tgrid_cont), _grid_dopenup),
-    Primitive("grid_embed", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_embed),
 ]
 
 def executeGrid(p, state, *, timeout=None):
@@ -199,6 +196,7 @@ def parseArgs(parser):
         default='x',
         type=str)
     parser.add_argument("--task", dest="task", default="grammar")
+    parser.add_argument("--exclude_pen", dest="exclude_pen", default=False, type=bool)
 
 if __name__ == '__main__':
     # this is just making sure this is all wired up.
@@ -208,7 +206,7 @@ if __name__ == '__main__':
     goal[0, :] = 1
     program = parseGrid('((grid_move) (grid_right) (grid_move))')
     assert np.all(executeGrid(program, GridState(start, location)).grid == goal)
-    assert GridTask("test case", start, goal, location).logLikelihood(program) == 0
+    assert GridTask("test case", start, goal, location).logLikelihood(program, noassert=True) == 0
 
     start = np.zeros((3, 3))
     location = (2, 0)
@@ -238,11 +236,6 @@ if __name__ == '__main__':
         tree=tree_tasks(),
     )
 
-    g0 = Grammar.uniform(
-        primitives,
-        # when doing grid_cont instead, we only consider $0
-        # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
-        continuationType=arrow(tgrid_cont,tgrid_cont))
     arguments = commandlineArguments(
         #iterations=1,
         #enumerationTimeout=1,
@@ -254,8 +247,9 @@ if __name__ == '__main__':
         iterations=3, recognitionTimeout=3600,
         # TODO what does this arity do? seems to relate to grammar?
         a=3,
-        maximumFrontier=10, topK=2, pseudoCounts=30.0,
-        helmholtzRatio=0.5, structurePenalty=1.,
+        maximumFrontier=10, topK=3, pseudoCounts=30.0,
+        helmholtzRatio=0.5,
+        structurePenalty=1.,
         extras=parseArgs,
 
         #enumerationTimeout=90, # need this for python
@@ -268,6 +262,12 @@ if __name__ == '__main__':
     task = arguments.pop('task')
     train = list(train_dict[task])
     test = train
+
+    g0 = Grammar.uniform(
+        baseprimitives if arguments.pop('exclude_pen') else primitives,
+        # when doing grid_cont instead, we only consider $0
+        # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
+        continuationType=arrow(tgrid_cont,tgrid_cont))
 
     generator = ecIterator(g0, train,
                            testingTasks=test,
