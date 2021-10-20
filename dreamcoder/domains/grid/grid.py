@@ -4,6 +4,7 @@ from dreamcoder.dreamcoder import *
 from dreamcoder.utilities import *
 import pickle, os
 import joblib
+from dreamcoder.utilities import numberOfCPUs
 
 currdir = os.path.abspath(os.path.dirname(__file__))
 
@@ -256,7 +257,7 @@ if __name__ == '__main__':
         #solver='python',
         #compressor="pypy",
 
-        CPUs=1,
+        CPUs=numberOfCPUs(),
     )
     del arguments['DELETE_var']
     task = arguments.pop('task')
