@@ -13,8 +13,8 @@ exception Exception of string
 
 type dir_type =
 {
-	mutable delta_x : int;
-	mutable delta_y : int;
+	delta_x : int;
+	delta_y : int;
 }
 let up = {delta_x = -1; delta_y = 0};;
 let down = {delta_x = 1; delta_y = 0};;
@@ -41,18 +41,20 @@ let move_forward game =
 	game.y <- max (min (game.y + game.dir.delta_y) (game.h-1)) 0;
 	if game.pendown then game.board.(game.x).(game.y) <- true;;
 
+(* HACK seems influential on results to have these be constants vs variables
+probably a performance issue that interacts with search timeouts? *)
 let rotate_left = function
-	|up -> left
-	|left -> down
-	|down -> right
-	|right -> up
+	|{delta_x = -1; delta_y = 0} -> {delta_x = 0; delta_y = -1}
+	|{delta_x = 1; delta_y = 0} -> {delta_x = 0; delta_y = 1}
+	|{delta_x = 0; delta_y = -1} -> {delta_x = 1; delta_y = 0}
+	|{delta_x = 0; delta_y = 1} -> {delta_x = -1; delta_y = 0}
 	|{delta_x = x; delta_y = y} -> raise (Exception "Direction not handled");;
 
 let rotate_right = function
-	|up -> right
-	|right -> down
-	|down -> left
-	|left -> up
+	|{delta_x = -1; delta_y = 0} -> {delta_x = 0; delta_y = 1}
+	|{delta_x = 1; delta_y = 0} -> {delta_x = 0; delta_y = -1}
+	|{delta_x = 0; delta_y = -1} -> {delta_x = -1; delta_y = 0}
+	|{delta_x = 0; delta_y = 1} -> {delta_x = 1; delta_y = 0}
 	|{delta_x = x; delta_y = y} -> raise (Exception "Direction not handled");;
 
 let step_cost s =
