@@ -182,6 +182,8 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 	in
 	let y = extra |> member "location" |> index 1 |> to_int
 	in
+	let invtemp = extra |> member "invtemp" |> to_float
+	in
 
   (* Printf.eprintf "TARGETING:\n%s\n\n" *)
 
@@ -192,7 +194,7 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 				(* copying here since we mutate in evaluation *)
 				 let s : (bool array) array = Array.map ~f:(Array.copy) start in
 				 match (evaluate_GRID timeout p s x y) with
-				 | Some(final) -> score_shortest_path final goal
+				 | Some(final) -> invtemp *. (score_shortest_path final goal)
 					(* if we can't execute, then we shouldn't consider this one *)
 				 | _ -> log 0.
 			 )

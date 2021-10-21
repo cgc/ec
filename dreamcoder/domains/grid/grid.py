@@ -93,7 +93,7 @@ class GridState:
 
 
 class GridTask(Task):
-    def __init__(self, name, start, goal, location):
+    def __init__(self, name, start, goal, location, *, invtemp=1.):
         self.start = start
         self.goal = goal
         self.location = location
@@ -101,6 +101,7 @@ class GridTask(Task):
         self.specialTask = ("GridTask", {
             "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
             "location": tuple(map(int, location)),
+            "invtemp": invtemp,
         })
 
     def logLikelihood(self, e, timeout=None, noassert=False):
