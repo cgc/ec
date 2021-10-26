@@ -36,10 +36,13 @@ type grid_state =
 type grid_cont = grid_state -> grid_state ;;
 let tgrid_cont = make_ground "grid_cont";;
 
-let move_forward game =
-	game.x <- max (min (game.x + game.dir.delta_x) (game.w-1)) 0;
-	game.y <- max (min (game.y + game.dir.delta_y) (game.h-1)) 0;
-	if game.pendown then game.board.(game.x).(game.y) <- true;;
+let mark_current_location s =
+	if s.pendown then s.board.(s.x).(s.y) <- true;;
+
+let move_forward s =
+	s.x <- max (min (s.x + s.dir.delta_x) (s.w-1)) 0;
+	s.y <- max (min (s.y + s.dir.delta_y) (s.h-1)) 0;
+	mark_current_location s;;
 
 (* HACK seems influential on results to have these be constants vs variables
 probably a performance issue that interacts with search timeouts? *)
@@ -61,30 +64,49 @@ let step_cost s =
 	(* s.reward <- s.reward -. 1.;; *)
 	if s.pendown then s.reward <- s.reward -. 1.;;
 
+let ensure_location s =
+		if s.x == -1 || s.y == -1 then raise (Exception "Location is not set.");;
+
 ignore(primitive "grid_left" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
 		step_cost(s);
 		s.dir <- (rotate_left s.dir);
 		k(s)));;
 ignore(primitive "grid_right" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
 		step_cost(s);
 		s.dir <- (rotate_right s.dir);
 		k(s)));;
 ignore(primitive "grid_move" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
 		step_cost(s);
 		move_forward(s);
 		k(s)));;
 ignore(primitive "grid_dopendown" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
 		step_cost(s);
 		s.pendown <- true;
 		k(s)));;
 ignore(primitive "grid_dopenup" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
 		step_cost(s);
 		s.pendown <- false;
+		k(s)));;
+ignore(primitive "grid_setlocation" (tint @> tint @> tgrid_cont @> tgrid_cont)
+	(fun (x: int) (y: int) (k: grid_cont) (s: grid_state) : grid_state ->
+		if (
+			s.x != -1 || s.y != -1 ||
+			x < 0 || s.w <= x ||
+			y < 0 || s.h <= y
+		) then raise (Exception "TODO not valid") else
+		s.x <- x;
+		s.y <- y;
+		mark_current_location s;
 		k(s)));;
 
 let print_row my_array=
@@ -103,6 +125,8 @@ let print_matrix the_matrix =
 
 ignore(primitive "grid_embed" ((tgrid_cont @> tgrid_cont) @> tgrid_cont @> tgrid_cont)
 	(fun (body: grid_cont -> grid_cont) (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
+
 		(* save agent's state (location, orientation, pen) *)
 		let x = s.x in
 		let y = s.y in
@@ -132,7 +156,8 @@ let evaluate_GRID timeout p start x y =
         try
           match run_for_interval
                   timeout
-                  (fun () -> run_lazy_analyzed_with_arguments p [fun s -> s] {reward=0.; board=start; w=(Array.length start); h=(Array.length start.(0)); dir=up; pendown=true; x=x; y=y})
+                  (fun () -> run_lazy_analyzed_with_arguments p [fun s -> s]
+										{reward=0.; board=start; w=(Array.length start); h=(Array.length start.(0)); dir=up; pendown=true; x=x; y=y})
           with
           | Some(p) ->
             Some(p)
@@ -196,7 +221,7 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 				(* copying here since we mutate in evaluation *)
 				 let s : (bool array) array = Array.map ~f:(Array.copy) start in
 				 match (evaluate_GRID timeout p s x y) with
-				 | Some(final) -> invtemp *. (score_shortest_path final goal)
+				 | Some(final) -> if invtemp == 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
 					(* if we can't execute, then we shouldn't consider this one *)
 				 | _ -> log 0.
 			 )

@@ -28,16 +28,11 @@ def tasks_people_gibbs():
         yield GridTask(
             f'people_sampled_boards.npy[{idx}]',
             start=start, goal=board, location=location)
-        '''
-        start = np.zeros(boards.shape[1:])
-        yield GridTask(
-            f'people_sampled_boards.npy[{idx}]',
-            start=start, goal=board, location=(0, 0))
-        '''
 
 def tree_tasks():
-    st = np.array([[0, 0, 0], [0, 0, 0], [1, 0, 0]])
+    st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
     loc = (2, 0)
+    st[loc] = 1
     return [
         GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
         GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
@@ -97,11 +92,16 @@ class GridTask(Task):
         self.start = start
         self.goal = goal
         self.location = location
+        self.invtemp = invtemp
         super().__init__(name, arrow(tgrid_cont,tgrid_cont), [], features=[])
-        self.specialTask = ("GridTask", {
+
+    @property
+    def specialTask(self):
+        # Computing this dynamically since we modify the task when there's the option to set location.
+        return ("GridTask", {
             "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
-            "location": tuple(map(int, location)),
-            "invtemp": invtemp,
+            "location": tuple(map(int, self.location)),
+            "invtemp": self.invtemp,
         })
 
     def logLikelihood(self, e, timeout=None, noassert=False):
@@ -172,15 +172,22 @@ def _grid_embed(body):
 
 # TODO still not clear to me what types are doing in Python; how is this bound? Does it require definition in ocaml?
 tgrid_cont = baseType("grid_cont")
-baseprimitives = [
+primitives_base = [
     Primitive("grid_left", arrow(tgrid_cont, tgrid_cont), _grid_left),
     Primitive("grid_right", arrow(tgrid_cont, tgrid_cont), _grid_right),
     Primitive("grid_move", arrow(tgrid_cont, tgrid_cont), _grid_move),
     Primitive("grid_embed", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_embed),
 ]
-primitives = baseprimitives + [
+
+primitives_pen = primitives_base + [
     Primitive("grid_dopendown", arrow(tgrid_cont, tgrid_cont), _grid_dopendown),
     Primitive("grid_dopenup", arrow(tgrid_cont, tgrid_cont), _grid_dopenup),
+]
+
+primitives_loc = primitives_pen + [
+    Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_dopenup),
+] + [
+    Primitive(str(j), tint, j) for j in range(1,5) # HACK need to change this later?
 ]
 
 def executeGrid(p, state, *, timeout=None):
@@ -198,7 +205,7 @@ def parseArgs(parser):
         default='x',
         type=str)
     parser.add_argument("--task", dest="task", default="grammar")
-    parser.add_argument("--exclude_pen", dest="exclude_pen", default=False, type=bool)
+    parser.add_argument("--grammar", dest="grammar", default='pen', type=str)
 
 if __name__ == '__main__':
     # this is just making sure this is all wired up.
@@ -232,12 +239,6 @@ if __name__ == '__main__':
 
     # Done with tests above
 
-    train_dict = dict(
-        grammar=tasks_from_grammar_boards(),
-        people_gibbs=tasks_people_gibbs(),
-        tree=tree_tasks(),
-    )
-
     arguments = commandlineArguments(
         #iterations=1,
         #enumerationTimeout=1,
@@ -262,11 +263,31 @@ if __name__ == '__main__':
     )
     del arguments['DELETE_var']
     task = arguments.pop('task')
+
+    grammar = arguments.pop('grammar')
+    p = dict(
+        no_pen=primitives_base,
+        pen=primitives_pen,
+        pen_setloc=primitives_loc,
+    )[grammar]
+
+    using_setloc = any(prim.name == 'grid_setlocation' for prim in p)
+
+    # task dist
+    train_dict = dict(
+        grammar=tasks_from_grammar_boards(),
+        people_gibbs=tasks_people_gibbs(),
+        tree=tree_tasks(),
+    )
     train = list(train_dict[task])
+    if using_setloc:
+        for task in train:
+            task.start = np.zeros(task.start.shape)
+            task.location = (-1, -1)
     test = train
 
     g0 = Grammar.uniform(
-        baseprimitives if arguments.pop('exclude_pen') else primitives,
+        p,
         # when doing grid_cont instead, we only consider $0
         # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
         continuationType=arrow(tgrid_cont,tgrid_cont))
@@ -280,5 +301,5 @@ if __name__ == '__main__':
         print('-' * 100)
         print()
         print()
-        fn = f'{currdir}/output-task{task}-iter{iter}.bin'
+        fn = f'{currdir}/output-task{task}-iter{iter}-grammar{grammar}.bin'
         joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
