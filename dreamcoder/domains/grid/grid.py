@@ -6,6 +6,9 @@ import pickle, os
 import joblib
 from dreamcoder.utilities import numberOfCPUs
 
+class GridException(Exception):
+    pass
+
 currdir = os.path.abspath(os.path.dirname(__file__))
 
 def tasks_from_grammar_boards():
@@ -44,22 +47,32 @@ def tree_tasks():
 
 
 class GridState:
-    def __init__(self, start, location, *, orientation=0, pendown=True, history=None):
+    def __init__(self, start, location, *, orientation=0, pendown=True, history=None, reward=0.):
         self.grid = start
         self.location = location
         self.orientation = orientation % 4 # [0, 1, 2, 3]
         self.pendown = pendown
+        self.reward = reward
+
+        # HACK ordering of next statements is intentional to avoid saving `history` into the history.
         if history is not None:
-            history += [dict(self.__dict__)]
+            state_copy = dict(self.__dict__)
+            assert 'history' not in state_copy, 'History should not include the `history` key.'
+            history += [state_copy]
         self.history = history
     def next_state(self, **kwargs):
-        args = dict(self.__dict__, **kwargs)
-        return GridState(args.pop('grid'), args.pop('location'), **args)
+        a = dict(self.__dict__, **kwargs)
+        if a.pop('step_cost', False):
+            a['reward'] -= 1
+        return GridState(a.pop('grid'), a.pop('location'), **a)
     def left(self):
-        return self.next_state(orientation=self.orientation - 1)
+        self._ensure_location()
+        return self.next_state(orientation=self.orientation - 1, step_cost=True)
     def right(self):
-        return self.next_state(orientation=self.orientation + 1)
+        self._ensure_location()
+        return self.next_state(orientation=self.orientation + 1, step_cost=True)
     def move(self):
+        self._ensure_location()
         dx, dy = [
             (-1, 0), # up
             (0, +1), # right
@@ -78,11 +91,25 @@ class GridState:
         if self.pendown:
             grid = np.copy(grid)
             grid[x, y] = 1
-        return self.next_state(grid=grid, location=(x, y))
+        return self.next_state(grid=grid, location=(x, y), step_cost=True)
     def dopendown(self):
-        return self.next_state(pendown=True)
+        self._ensure_location()
+        return self.next_state(pendown=True, step_cost=True)
     def dopenup(self):
-        return self.next_state(pendown=False)
+        self._ensure_location()
+        return self.next_state(pendown=False, step_cost=True)
+    def setlocation(self, location):
+        if self.location != (-1, -1):
+            raise GridException('Location can only be set when unspecified.')
+        grid = self.grid
+        if self.pendown:
+            grid = np.copy(grid)
+            grid[location] = 1
+        return self.next_state(grid=grid, location=location)
+
+    def _ensure_location(self):
+        if self.location == (-1, -1):
+            raise GridException('Location must be set')
     def __repr__(self):
         return f'GridState({self.grid}, {self.location}, orientation={self.orientation}, pendown={self.pendown})'
 
@@ -104,11 +131,10 @@ class GridTask(Task):
             "invtemp": self.invtemp,
         })
 
-    def logLikelihood(self, e, timeout=None, noassert=False):
-        if not noassert:
-            assert False, 'This is out of date...'
+    def logLikelihood(self, e, timeout=None):
         yh = executeGrid(e, GridState(self.start, self.location), timeout=timeout)
-        if yh is not None and np.all(yh.grid == self.goal): return 0.
+
+        if yh is not None and np.all(yh.grid == self.goal): return self.invtemp * yh.reward
         return NEGATIVEINFINITY
 
 def parseGrid(s):
@@ -117,9 +143,22 @@ def parseGrid(s):
     _e = Program.parse("grid_embed")
     def command(k, environment, continuation):
         assert isinstance(k,list)
-        if k[0] in (Symbol("grid_right"), Symbol("grid_left"), Symbol("grid_move"), Symbol("grid_dopenup"), Symbol("grid_dopendown")):
+        if k[0] in (
+            Symbol("grid_right"), Symbol("grid_left"),
+            Symbol("grid_move"), Symbol("grid_dopenup"),
+            Symbol("grid_dopendown"),
+        ):
             assert len(k) == 1
             return Application(Program.parse(k[0].value()),continuation)
+        if k[0] in (
+            Symbol('grid_setlocation'),
+        ):
+            assert len(k) == 3
+            return Application(
+                Application(
+                    Application(Program.parse(k[0].value()), expression(k[1], environment)),
+                    expression(k[2], environment)),
+            continuation)
         if k[0] == Symbol("grid_embed"):
             # TODO issues with incorrect continuations probably need to be dealt with here
             # I think the issue is that we hardcode Index(0)?
@@ -154,18 +193,20 @@ def _grid_right(k): return lambda s: k(s.right())
 def _grid_move(k): return lambda s: k(s.move())
 def _grid_dopendown(k): return lambda s: k(s.dopendown())
 def _grid_dopenup(k): return lambda s: k(s.dopenup())
+def _grid_setlocation(x): return lambda y: lambda k: lambda s: k(s.setlocation((x, y)))
 
 def _grid_embed(body):
     def f(k):
         def g(s):
+            s._ensure_location()
+
             identity = lambda x: x
             # TODO: use of identity here feels a bit heuristic; it's what tower's impl does, but it seems
             # to let misuse of the continuation happen in program induction (use of $0 and $1 in an embed
             # result in same value, but $1 should be incorrect & terminate program?)
             ns = body(identity)(s)
-            # We keep the grid state, but restore the agent state
-            #ns = GridState(ns.grid, s.location, orientation=s.orientation, pendown=s.pendown)
-            ns = s.next_state(grid=ns.grid)
+            # We keep the grid & reward state, but restore the agent state
+            ns = s.next_state(grid=ns.grid, reward=ns.reward)
             return k(ns)
         return g
     return f
@@ -185,7 +226,7 @@ primitives_pen = primitives_base + [
 ]
 
 primitives_loc = primitives_pen + [
-    Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_dopenup),
+    Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_setlocation),
 ] + [
     Primitive(str(j), tint, j) for j in range(1,5) # HACK need to change this later?
 ]
@@ -196,6 +237,7 @@ def executeGrid(p, state, *, timeout=None):
         return runWithTimeout(lambda : p.evaluate([])(identity)(state),
                               timeout=timeout)
     except RunWithTimeout: return None
+    except GridException: return None
 
 def parseArgs(parser):
     parser.add_argument(
@@ -208,37 +250,6 @@ def parseArgs(parser):
     parser.add_argument("--grammar", dest="grammar", default='pen', type=str)
 
 if __name__ == '__main__':
-    # this is just making sure this is all wired up.
-    start = np.zeros((2, 2))
-    location = (1, 0)
-    goal = np.copy(start)
-    goal[0, :] = 1
-    program = parseGrid('((grid_move) (grid_right) (grid_move))')
-    assert np.all(executeGrid(program, GridState(start, location)).grid == goal)
-    assert GridTask("test case", start, goal, location).logLikelihood(program, noassert=True) == 0
-
-    start = np.zeros((3, 3))
-    location = (2, 0)
-    goal = np.copy(start)
-    goal[0, 0] = goal[1, 0] = goal[1, 1] = goal[2, 1] = 1
-    program = parseGrid('''(
-        (
-            grid_embed
-            (grid_move)
-            (
-                grid_embed
-                (grid_move)
-            )
-            (grid_right)
-            (grid_move)
-        )
-        (grid_right)
-        (grid_move)
-    )''')
-    assert np.all(executeGrid(program, GridState(start, location)).grid == goal)
-
-    # Done with tests above
-
     arguments = commandlineArguments(
         #iterations=1,
         #enumerationTimeout=1,
@@ -301,5 +312,10 @@ if __name__ == '__main__':
         print('-' * 100)
         print()
         print()
-        fn = f'{currdir}/output-task{task}-iter{iter}-grammar{grammar}.bin'
+        dir = f'{currdir}/output'
+        try:
+            os.mkdir(dir)
+        except:
+            pass
+        fn = f'{dir}/output-task{task}-iter{iter}-grammar{grammar}.bin'
         joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
