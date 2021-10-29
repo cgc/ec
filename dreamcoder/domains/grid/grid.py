@@ -59,7 +59,7 @@ class GridCNN(nn.Module):
 
         start_state=GridState(np.zeros((4,4)),(1,1))
         p1=executeGrid(p,start_state)
-        t=GridTask("grid dream",start=(1,1),goal=p1.grid,location=p1.location)
+        t=GridTask("grid dream",start=start_state,goal=p1.grid,location=(1, 1))
         return t  
         
         
