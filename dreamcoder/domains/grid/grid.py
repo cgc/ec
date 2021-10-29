@@ -6,6 +6,66 @@ import pickle, os
 import joblib
 from dreamcoder.utilities import numberOfCPUs
 
+import torch.nn as nn
+import torch.nn.functional as F
+from dreamcoder.recognition import variable  
+
+class Flatten(nn.Module):
+    def __init__(self):
+        super(Flatten,self).__init__()
+    def forward(self,x):
+        return x.view(x.size(0),-1)
+
+class GridCNN(nn.Module):
+    def __init__(self,tasks,testingTasks=[],cuda=False):
+        super(GridCNN,self).__init__()
+        self.CUDA=cuda 
+        self.recomputeTasks=True 
+
+        self.conv1=nn.Conv2d(1,16,3,stride=1)
+
+        
+
+        self.outputDimensionality=64 
+        if cuda:
+            self.CUDA=True 
+            self.cuda()
+
+    def forward(self,v):
+        assert v.shape[0]==4
+        if len(v.shape)==2:
+            v=np.expand_dims(v,(0,1))
+            inserted_batch=True 
+        elif len(v.shape)==3:
+            v=np.expand_dims(v,0)
+            inserted_batch=True
+
+        v=variable(v,cuda=self.CUDA).float()
+        v=F.relu(self.conv1(v))
+
+        if inserted_batch:
+            return v.view(-1)
+        else:
+            return v 
+    def featuresOfTask(self, t):  # Take a task and returns [features]
+        assert t.goal.shape[0]==4
+        return self(t.goal)
+    def featuresOfTasks(self, ts):  # Take a task and returns [features]
+        """Takes the goal first; optionally also takes the current state second"""
+        assert ts[0].goal.shape[0]==4 
+
+        return self(np.array([t.goal for t in ts]))
+    def taskOfProgram(self,p,t):
+
+        start_state=GridState(np.zeros((4,4)),(1,1))
+        p1=executeGrid(p,start_state)
+        t=GridTask("grid dream",start=(1,1),goal=p1.grid,location=p1.location)
+        return t  
+        
+        
+        
+
+
 class GridException(Exception):
     pass
 
@@ -265,6 +325,7 @@ if __name__ == '__main__':
         helmholtzRatio=0.5,
         structurePenalty=1.,
         extras=parseArgs,
+        featureExtractor=GridCNN,
 
         #enumerationTimeout=90, # need this for python
         #solver='python',
