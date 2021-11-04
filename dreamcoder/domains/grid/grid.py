@@ -8,7 +8,7 @@ from dreamcoder.utilities import numberOfCPUs
 
 import torch.nn as nn
 import torch.nn.functional as F
-from dreamcoder.recognition import variable  
+from dreamcoder.recognition import variable
 
 class Flatten(nn.Module):
     def __init__(self):
@@ -19,23 +19,23 @@ class Flatten(nn.Module):
 class GridCNN(nn.Module):
     def __init__(self,tasks,testingTasks=[],cuda=False):
         super(GridCNN,self).__init__()
-        self.CUDA=cuda 
-        self.recomputeTasks=True 
+        self.CUDA=cuda
+        self.recomputeTasks=True
 
         self.conv1=nn.Conv2d(1,16,3,stride=1)
 
-        
 
-        self.outputDimensionality=64 
+
+        self.outputDimensionality=64
         if cuda:
-            self.CUDA=True 
+            self.CUDA=True
             self.cuda()
 
     def forward(self,v):
         assert v.shape[0]==4
         if len(v.shape)==2:
             v=np.expand_dims(v,(0,1))
-            inserted_batch=True 
+            inserted_batch=True
         elif len(v.shape)==3:
             v=np.expand_dims(v,0)
             inserted_batch=True
@@ -46,13 +46,13 @@ class GridCNN(nn.Module):
         if inserted_batch:
             return v.view(-1)
         else:
-            return v 
+            return v
     def featuresOfTask(self, t):  # Take a task and returns [features]
         assert t.goal.shape[0]==4
         return self(t.goal)
     def featuresOfTasks(self, ts):  # Take a task and returns [features]
         """Takes the goal first; optionally also takes the current state second"""
-        assert ts[0].goal.shape[0]==4 
+        assert ts[0].goal.shape[0]==4
 
         return self(np.array([t.goal for t in ts]))
     def taskOfProgram(self,p,t):
@@ -60,10 +60,10 @@ class GridCNN(nn.Module):
         start_state=GridState(np.zeros((4,4)),(1,1))
         p1=executeGrid(p,start_state)
         t=GridTask("grid dream",start=start_state,goal=p1.grid,location=(1, 1))
-        return t  
-        
-        
-        
+        return t
+
+
+
 
 
 class GridException(Exception):
@@ -311,14 +311,12 @@ def parseArgs(parser):
 
 if __name__ == '__main__':
     arguments = commandlineArguments(
-        #iterations=1,
-        #enumerationTimeout=1,
-        #maximumFrontier=10,
-        enumerationTimeout=30,
+        enumerationTimeout=120,
         solver='ocaml',
         compressor="ocaml",
         activation='tanh',
-        iterations=3, recognitionTimeout=3600,
+        iterations=10,
+        recognitionTimeout=120,
         # TODO what does this arity do? seems to relate to grammar?
         a=3,
         maximumFrontier=10, topK=3, pseudoCounts=30.0,
@@ -326,11 +324,6 @@ if __name__ == '__main__':
         structurePenalty=1.,
         extras=parseArgs,
         featureExtractor=GridCNN,
-
-        #enumerationTimeout=90, # need this for python
-        #solver='python',
-        #compressor="pypy",
-
         CPUs=numberOfCPUs(),
     )
     del arguments['DELETE_var']
