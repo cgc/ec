@@ -319,7 +319,7 @@ if __name__ == '__main__':
         recognitionTimeout=120,
         # TODO what does this arity do? seems to relate to grammar?
         a=3,
-        maximumFrontier=10, topK=3, pseudoCounts=30.0,
+        maximumFrontier=5, topK=2, pseudoCounts=30.0,
         helmholtzRatio=0.5,
         structurePenalty=1.,
         extras=parseArgs,
