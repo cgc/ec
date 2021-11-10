@@ -59,6 +59,9 @@ class GridCNN(nn.Module):
 
         start_state=GridState(np.zeros((4,4)),(1,1))
         p1=executeGrid(p,start_state)
+        if p1 is None:
+            print(f'program did not execute: {p}')
+            return None
         t=GridTask("grid dream",start=start_state,goal=p1.grid,location=(1, 1))
         return t
 
