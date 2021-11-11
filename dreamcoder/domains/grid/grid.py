@@ -131,7 +131,7 @@ class GridState:
         a = dict(self.__dict__, **kwargs)
         if a.pop('step_cost', False):
             a['reward'] -= 1
-        return GridState(a.pop('grid'), a.pop('location'), **a)
+        return type(self)(a.pop('grid'), a.pop('location'), **a)
     def left(self):
         self._ensure_location()
         return self.next_state(orientation=self.orientation - 1, step_cost=True)
@@ -292,11 +292,13 @@ primitives_pen = primitives_base + [
     Primitive("grid_dopenup", arrow(tgrid_cont, tgrid_cont), _grid_dopenup),
 ]
 
-primitives_loc = primitives_pen + [
-    Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_setlocation),
-] + [
+primitives_numbers_only = [
     Primitive(str(j), tint, j) for j in range(1,5) # HACK need to change this later?
 ]
+
+primitives_loc = primitives_pen + [
+    Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_setlocation),
+] + primitives_numbers_only
 
 def executeGrid(p, state, *, timeout=None):
     try:
