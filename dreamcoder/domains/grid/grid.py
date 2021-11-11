@@ -23,10 +23,12 @@ class GridCNN(nn.Module):
         self.recomputeTasks=True
 
         self.conv1=nn.Conv2d(1,16,3,stride=1)
+        self.fc1=nn.Linear(64,16)
 
 
 
-        self.outputDimensionality=64
+        #self.outputDimensionality=64
+        self.outputDimensionality=16
         if cuda:
             self.CUDA=True
             self.cuda()
@@ -42,6 +44,8 @@ class GridCNN(nn.Module):
 
         v=variable(v,cuda=self.CUDA).float()
         v=F.relu(self.conv1(v))
+        v=torch.reshape(v,(-1,64))
+        v=F.relu(self.fc1(v))
 
         if inserted_batch:
             return v.view(-1)
