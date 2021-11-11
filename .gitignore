@@ -33,4 +33,4 @@ tests/out/
 .DS_Store
 .ipynb_checkpoints
 .merlin
-
+dreamcoder/domains/grid/output

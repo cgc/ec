@@ -322,7 +322,7 @@ if __name__ == '__main__':
         solver='ocaml',
         compressor="ocaml",
         activation='tanh',
-        iterations=10,
+        iterations=5,
         recognitionTimeout=120,
         # TODO what does this arity do? seems to relate to grammar?
         a=3,
@@ -334,7 +334,7 @@ if __name__ == '__main__':
         CPUs=numberOfCPUs(),
     )
     del arguments['DELETE_var']
-    task = arguments.pop('task')
+    taskname = arguments.pop('task')
 
     grammar = arguments.pop('grammar')
     p = dict(
@@ -351,7 +351,7 @@ if __name__ == '__main__':
         people_gibbs=tasks_people_gibbs(),
         tree=tree_tasks(),
     )
-    train = list(train_dict[task])
+    train = list(train_dict[taskname])
     if using_setloc:
         for task in train:
             task.start = np.zeros(task.start.shape)
@@ -368,9 +368,9 @@ if __name__ == '__main__':
                            testingTasks=test,
                            **arguments)
     for iter, result in enumerate(generator):
-        print('another iter')
         print('-' * 100)
-        print('-' * 100)
+        print()
+        print()
         print()
         print()
         dir = f'{currdir}/output'
@@ -378,5 +378,5 @@ if __name__ == '__main__':
             os.mkdir(dir)
         except:
             pass
-        fn = f'{dir}/output-task{task}-iter{iter}-grammar{grammar}.bin'
+        fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
         joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
