@@ -17,18 +17,17 @@ class Flatten(nn.Module):
         return x.view(x.size(0),-1)
 
 class GridCNN(nn.Module):
+    fixed_location = (1, 1)
+
     def __init__(self,tasks,testingTasks=[],cuda=False):
         super(GridCNN,self).__init__()
         self.CUDA=cuda
         self.recomputeTasks=True
 
         self.conv1=nn.Conv2d(1,16,3,stride=1)
-        self.fc1=nn.Linear(64,16)
+        self.outputDimensionality=64
+        self.fc1=nn.Linear(64,self.outputDimensionality)
 
-
-
-        #self.outputDimensionality=64
-        self.outputDimensionality=16
         if cuda:
             self.CUDA=True
             self.cuda()
@@ -52,21 +51,23 @@ class GridCNN(nn.Module):
         else:
             return v
     def featuresOfTask(self, t):  # Take a task and returns [features]
-        assert t.goal.shape[0]==4
+        assert t.goal.shape==(4,4)
         return self(t.goal)
     def featuresOfTasks(self, ts):  # Take a task and returns [features]
         """Takes the goal first; optionally also takes the current state second"""
-        assert ts[0].goal.shape[0]==4
-
+        assert all(t.goal.shape==(4,4) for t in ts)
         return self(np.array([t.goal for t in ts]))
     def taskOfProgram(self,p,t):
-
-        start_state=GridState(np.zeros((4,4)),(1,1))
+        # Excluding trivial programs so we don't get confused about samples
+        if str(p) == '(lambda $0)':
+            return None
+        start_state=GridState(np.zeros((4,4)),GridCNN.fixed_location)
         p1=executeGrid(p,start_state)
         if p1 is None:
-            print(f'program did not execute: {p}')
+            print(f'non-trivial program had an execution error: {p}')
             return None
-        t=GridTask("grid dream",start=start_state,goal=p1.grid,location=(1, 1))
+        assert p1.grid.shape == start_state.grid.shape
+        t=GridTask("grid dream",start=start_state.grid,goal=p1.grid,location=start_state.location)
         return t
 
 
@@ -169,7 +170,10 @@ class GridState:
         if self.location != (-1, -1):
             raise GridException('Location can only be set when unspecified.')
         grid = self.grid
+        valid = 0 <= location[0] < grid.shape[0] and 0 <= location[1] < grid.shape[1]
         if self.pendown:
+            if not valid:
+                raise GridException(f'Invalid location {location} for grid with shape {grid.shape}')
             grid = np.copy(grid)
             grid[location] = 1
         return self.next_state(grid=grid, location=location)
@@ -183,6 +187,8 @@ class GridState:
 
 class GridTask(Task):
     def __init__(self, name, start, goal, location, *, invtemp=1.):
+        assert start.shape == goal.shape
+        assert location == (-1, -1) or (0 <= location[0] < start.shape[0] and 0 <= location[1] < start.shape[1])
         self.start = start
         self.goal = goal
         self.location = location
@@ -293,12 +299,50 @@ primitives_pen = primitives_base + [
 ]
 
 primitives_numbers_only = [
-    Primitive(str(j), tint, j) for j in range(1,5) # HACK need to change this later?
+    Primitive(str(j), tint, j) for j in range(0,4) # HACK this needs to be based on grid size
 ]
 
 primitives_loc = primitives_pen + [
     Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_setlocation),
 ] + primitives_numbers_only
+
+def uniform_with_excluded(primitives, excluded, continuationType):
+    '''
+    ContextualGrammar requires we have all primitives at all times, so we exclude them
+    by giving them log probability of negative inf.
+    '''
+    neginf = -float('inf')
+    return Grammar(
+        0.0,
+        [(neginf if p in excluded else 0.0, p.infer(), p) for p in primitives],
+        continuationType=continuationType)
+
+def make_grammar(primitives, continuationType):
+    '''
+    This function returns a grammar when passed primitives. It handles a special
+    case to ensure generation of valid programs that use setlocation. When
+    setlocation is used, this function ensures the resulting grammar can only
+    use setlocation when there's no parent primitive.
+    '''
+
+    setloc = next((p for p in primitives if p.name == 'grid_setlocation'), None)
+
+    # If setloc isn't present, then we just return a uniform grammar
+    if setloc is None:
+        return Grammar.uniform(primitives, continuationType=continuationType)
+
+    primitives_without_loc = [p for p in primitives if p != setloc]
+
+    g_noloc = uniform_with_excluded(primitives, [setloc], continuationType=continuationType)
+    g_loc = uniform_with_excluded(primitives, primitives_without_loc, continuationType=continuationType)
+
+    return ContextualGrammar(
+        # If we have no parent, then we need to be a setlocation
+        g_loc,
+        # If we have a variable as parent, we avoid setloc
+        g_noloc,
+        # If we have anything else as parent (setloc or other primitives), we avoid setloc
+        {e: [g_noloc]*len(e.infer().functionArguments()) for e in primitives})
 
 def executeGrid(p, state, *, timeout=None):
     try:
@@ -355,17 +399,24 @@ if __name__ == '__main__':
     )
     train = list(train_dict[taskname])
     if using_setloc:
+        # make_grammar below will always start a program with setlocation when this is true,
+        # so we have to make GridCNN use it too
+        # HACK in the future, should we make this be dynamic within taskOfProgram?
+        # could walk the program, see if setlocation is used, then choose to do location
+        # dynamically?
+        GridCNN.fixed_location = (-1, -1)
         for task in train:
             task.start = np.zeros(task.start.shape)
             task.location = (-1, -1)
     test = train
 
-    g0 = Grammar.uniform(
+    g0 = make_grammar(
         p,
         # when doing grid_cont instead, we only consider $0
         # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
         continuationType=arrow(tgrid_cont,tgrid_cont))
 
+    arguments['contextual'] = isinstance(g0, ContextualGrammar)
     generator = ecIterator(g0, train,
                            testingTasks=test,
                            **arguments)

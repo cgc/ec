@@ -907,6 +907,11 @@ Uses.empty = Uses()
 
 class ContextualGrammar:
     def __init__(self, noParent, variableParent, library):
+        assert isinstance(noParent, Grammar)
+        assert isinstance(variableParent, Grammar)
+        for e, gs in library.items():
+            for g in gs:
+                assert isinstance(g, Grammar)
         self.noParent, self.variableParent, self.library = noParent, variableParent, library
 
         self.productions = [(None,t,p) for _,t,p in self.noParent.productions ]
@@ -952,8 +957,13 @@ class ContextualGrammar:
                                  "arguments": [gp.json() for gp in gs ]}
                                     for e,gs in self.library.items() ]}
 
+    def __len__(self):
+        return len(self.noParent) # should be the same for all, per assertions in constructor
+
     @staticmethod
     def fromGrammar(g):
+        if isinstance(g, ContextualGrammar):
+            return g
         return ContextualGrammar(g, g,
                                  {e: [g]*len(e.infer().functionArguments())
                                   for e in g.primitives })
