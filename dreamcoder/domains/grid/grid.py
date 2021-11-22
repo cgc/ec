@@ -94,11 +94,9 @@ def tasks_people_gibbs():
     boards = np.load(f'{currdir}/people_sampled_boards.npy')
     for idx, board in enumerate(boards):
         start = np.zeros(boards.shape[1:])
-        location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
-        start[location] = 1
         yield GridTask(
             f'people_sampled_boards.npy[{idx}]',
-            start=start, goal=board, location=location)
+            start=start, goal=board, location=(-1, -1))
 
 def tree_tasks():
     st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
@@ -186,13 +184,14 @@ class GridState:
 
 
 class GridTask(Task):
-    def __init__(self, name, start, goal, location, *, invtemp=1.):
+    def __init__(self, name, start, goal, location, *, invtemp=1., try_all_start=False):
         assert start.shape == goal.shape
         assert location == (-1, -1) or (0 <= location[0] < start.shape[0] and 0 <= location[1] < start.shape[1])
         self.start = start
         self.goal = goal
         self.location = location
         self.invtemp = invtemp
+        self.try_all_start = try_all_start
         super().__init__(name, arrow(tgrid_cont,tgrid_cont), [], features=[])
 
     @property
@@ -202,13 +201,23 @@ class GridTask(Task):
             "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
             "location": tuple(map(int, self.location)),
             "invtemp": self.invtemp,
+            "try_all_start": self.try_all_start,
         })
 
-    def logLikelihood(self, e, timeout=None):
-        yh = executeGrid(e, GridState(self.start, self.location), timeout=timeout)
-
+    def _score_from_location(self, e, state, *, timeout=None):
+        yh = executeGrid(e, state, timeout=timeout)
         if yh is not None and np.all(yh.grid == self.goal): return self.invtemp * yh.reward
         return NEGATIVEINFINITY
+
+    def logLikelihood(self, e, timeout=None):
+        if self.try_all_start:
+            return max(
+                self._score_from_location(e, GridState(self.start, (-1, -1)).setlocation((x, y)), timeout=timeout)
+                for x in range(self.start.shape[0])
+                for y in range(self.start.shape[1])
+            )
+        else:
+            return self._score_from_location(e, GridState(self.start, self.location), timeout=timeout)
 
 def parseGrid(s):
     from sexpdata import loads, Symbol
@@ -361,6 +370,7 @@ def parseArgs(parser):
         type=str)
     parser.add_argument("--task", dest="task", default="grammar")
     parser.add_argument("--grammar", dest="grammar", default='pen', type=str)
+    parser.add_argument("--try_all_start", dest="try_all_start", default=False, action='store_true')
 
 if __name__ == '__main__':
     arguments = commandlineArguments(
@@ -381,6 +391,7 @@ if __name__ == '__main__':
     )
     del arguments['DELETE_var']
     taskname = arguments.pop('task')
+    try_all_start = arguments.pop('try_all_start')
 
     grammar = arguments.pop('grammar')
     p = dict(
@@ -408,9 +419,12 @@ if __name__ == '__main__':
         for task in train:
             task.start = np.zeros(task.start.shape)
             task.location = (-1, -1)
+    if try_all_start:
+        for task in train:
+            task.try_all_start = try_all_start
     test = train
 
-    g0 = make_grammar(
+    g0 = Grammar.uniform(
         p,
         # when doing grid_cont instead, we only consider $0
         # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()

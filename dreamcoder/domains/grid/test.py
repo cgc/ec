@@ -82,3 +82,16 @@ def test_setlocation():
     ])
     program = grid.parseGrid('''((grid_setlocation 1 2) (grid_move))''')
     assert np.all(grid.executeGrid(program, grid.GridState(start, (-1, -1))).grid == goal2)
+
+def test_try_all_start():
+    start = np.zeros((3, 3))
+    goal = np.array([
+        [1, 1, 0],
+        [1, 0, 0],
+        [0, 0, 0],
+    ])
+    program = grid.parseGrid('((grid_move) (grid_right) (grid_move))')
+    assert grid.GridTask("test case", start, goal, (-1, -1), try_all_start=True).logLikelihood(program) == -3
+
+    # a bit silly
+    assert grid.GridTask("test case", start, start, (-1, -1), try_all_start=True).logLikelihood(program) == -float('inf')

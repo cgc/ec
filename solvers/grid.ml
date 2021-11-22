@@ -211,19 +211,33 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 	in
 	let invtemp = extra |> member "invtemp" |> to_float
 	in
+	let try_all_start = extra |> member "try_all_start" |> to_bool in
+
+	let score_program p x y =
+		(* copying here since we mutate in evaluation *)
+		let s : (bool array) array = Array.map ~f:(Array.copy) start in
+		match (evaluate_GRID timeout p s x y) with
+			| Some(final) -> if invtemp == 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
+			(* if we can't execute, then we shouldn't consider this one *)
+			| _ -> log 0.
+	in
+
+	let score_program_all_start p =
+		let v = ref (log 0.) in
+		for x = 0 to ((Array.length start)-1) do
+			for y = 0 to ((Array.length start.(0))-1) do
+				v := max !v (score_program p x y);
+			done;
+		done;
+		!v
+	in
 
   (* Printf.eprintf "TARGETING:\n%s\n\n" *)
 
   { name = name    ;
     task_type = task_type ;
-    log_likelihood =
-      (fun p : float ->
-				(* copying here since we mutate in evaluation *)
-				 let s : (bool array) array = Array.map ~f:(Array.copy) start in
-				 match (evaluate_GRID timeout p s x y) with
-				 | Some(final) -> if invtemp == 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
-					(* if we can't execute, then we shouldn't consider this one *)
-				 | _ -> log 0.
-			 )
+    log_likelihood = (fun p : float ->
+			if try_all_start then score_program_all_start p
+			else score_program p x y)
   })
 ;;
