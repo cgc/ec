@@ -94,9 +94,11 @@ def tasks_people_gibbs():
     boards = np.load(f'{currdir}/people_sampled_boards.npy')
     for idx, board in enumerate(boards):
         start = np.zeros(boards.shape[1:])
+        location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
+        start[location] = 1
         yield GridTask(
             f'people_sampled_boards.npy[{idx}]',
-            start=start, goal=board, location=(-1, -1))
+            start=start, goal=board, location=location)
 
 def tree_tasks():
     st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
