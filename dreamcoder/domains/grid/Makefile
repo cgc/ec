@@ -1,2 +1,3 @@
+# Below replaced `PYTHONPATH=../../.. pytest test.py` because it lets us do a relative import of grid.py
 test:
-	PYTHONPATH=../../.. pytest test.py
+	cd ../../.. && PYTHONPATH=. pytest dreamcoder/domains/grid/test.py

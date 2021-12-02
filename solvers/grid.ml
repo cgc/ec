@@ -61,11 +61,11 @@ let rotate_right = function
 	|{delta_x = x; delta_y = y} -> raise (Exception "Direction not handled");;
 
 let step_cost s =
-	(* s.reward <- s.reward -. 1.;; *)
-	if s.pendown then s.reward <- s.reward -. 1.;;
+	s.reward <- s.reward -. 1.;;
+	(*if s.pendown then s.reward <- s.reward -. 1.;;*)
 
 let ensure_location s =
-		if s.x == -1 || s.y == -1 then raise (Exception "Location is not set.");;
+		if s.x = -1 || s.y = -1 then raise (Exception "Location is not set.");;
 
 ignore(primitive "grid_left" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
@@ -100,7 +100,7 @@ ignore(primitive "grid_dopenup" (tgrid_cont @> tgrid_cont)
 ignore(primitive "grid_setlocation" (tint @> tint @> tgrid_cont @> tgrid_cont)
 	(fun (x: int) (y: int) (k: grid_cont) (s: grid_state) : grid_state ->
 		if (
-			s.x != -1 || s.y != -1 ||
+			s.x <> -1 || s.y <> -1 ||
 			x < 0 || s.w <= x ||
 			y < 0 || s.h <= y
 		) then raise (Exception "TODO not valid") else
@@ -186,7 +186,7 @@ let score_progress final goal =
 	let hit = (final.board = goal) in
 	let sum_ = (fun (a : int array) : int -> (Array.fold_right ~f:(fun acc x -> acc + x) ~init:0 a)) in
 	let map2rew = (fun (a : bool array) (b : bool array) : (int array) ->
-		Array.mapi ~f:(fun idx x -> if x == b.(idx) then 0 else -1) a) in
+		Array.mapi ~f:(fun idx x -> if x = b.(idx) then 0 else -1) a) in
 	let (_, match_reward) = Array.fold_right ~f:(fun _ (idx, acc) ->
 		(idx + 1, acc + (sum_ (map2rew goal.(idx) final.board.(idx))))
 	) goal ~init:(0, 0) in
@@ -212,21 +212,29 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 	let invtemp = extra |> member "invtemp" |> to_float
 	in
 	let try_all_start = extra |> member "try_all_start" |> to_bool in
+	let copyarr a = Array.map ~f:(Array.copy) a in
 
-	let score_program p x y =
-		(* copying here since we mutate in evaluation *)
-		let s : (bool array) array = Array.map ~f:(Array.copy) start in
+	let score_program p s x y =
 		match (evaluate_GRID timeout p s x y) with
-			| Some(final) -> if invtemp == 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
+			| Some(final) -> if invtemp = 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
 			(* if we can't execute, then we shouldn't consider this one *)
 			| _ -> log 0.
+	in
+
+	let score_program_one_start p x y =
+		(* copying here since we mutate in evaluation *)
+		let s = copyarr start in
+		score_program p s x y
 	in
 
 	let score_program_all_start p =
 		let v = ref (log 0.) in
 		for x = 0 to ((Array.length start)-1) do
 			for y = 0 to ((Array.length start.(0))-1) do
-				v := max !v (score_program p x y);
+				(* copying here since we mutate in evaluation *)
+				let s = copyarr start in
+				s.(x).(y) <- true;
+				v := max !v (score_program p s x y);
 			done;
 		done;
 		!v
@@ -238,6 +246,54 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
     task_type = task_type ;
     log_likelihood = (fun p : float ->
 			if try_all_start then score_program_all_start p
-			else score_program p x y)
+			else score_program_one_start p x y)
   })
 ;;
+
+let () =
+	let defaultTimeout = 0.1 in
+
+	(*
+	The order of these yojson imports is important; in particular, the to_string util used below is defined in both places.
+	The one is Yojson.Basic will add quotes around the input? But we don't want that, we want to parse the JSON to a string
+	*)
+	let open Yojson.Basic in
+	let open Yojson.Basic.Util in
+
+	let rec unpack x =
+		try magical (x |> to_int) with _ ->
+		try magical (x |> to_number) with _ ->
+		try magical (x |> to_bool) with _ ->
+		try
+			let v = x |> to_string in
+			if String.length v = 1 then magical v.[0] else magical v
+		with _ ->
+		try
+			x |> to_list |> List.map ~f:unpack |> magical
+		with _ -> raise (Failure "could not unpack")
+	in
+
+	(* Compression.ml also has code for loading from file in argv *)
+	let j = Yojson.Basic.from_channel Pervasives.stdin in
+
+	(* First, we load the task *)
+	let t = j |> member "task" in
+	let e = t |> member "examples" |> to_list in
+	let task_type = t |> member "request" |> deserialize_type in
+	let examples = e |> List.map ~f:(fun ex -> (
+		ex |> member "inputs" |> to_list |> List.map ~f:unpack,
+		ex |> member "output" |> unpack)) in
+	let name = t |> member "name" |> to_string in
+	let special = t |> member "specialTask" |> to_string in
+	let handler = special |> Hashtbl.find task_handler |> get_some in
+	let task = handler (t |> member "extras") ~timeout:defaultTimeout name task_type examples in
+
+	(* Then we load the program *)
+	let program = j |> member "program" |> to_string |> parse_program |> get_some in
+
+	(* And evaluate the program on the task! *)
+	let ll = task.log_likelihood program in
+
+	(* Generating output here *)
+	let j = `Assoc(["logLikelihood",`Float(ll);]) in
+	pretty_to_string j |> print_string;;
