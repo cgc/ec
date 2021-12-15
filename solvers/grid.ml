@@ -31,6 +31,8 @@ type grid_state =
 	w : int;
 	h : int;
 	mutable board : (bool array) array;
+	cost_pen_change : bool;
+	cost_when_penup : bool;
 };;
 
 type grid_cont = grid_state -> grid_state ;;
@@ -61,8 +63,8 @@ let rotate_right = function
 	|{delta_x = x; delta_y = y} -> raise (Exception "Direction not handled");;
 
 let step_cost s =
-	s.reward <- s.reward -. 1.;;
-	(*if s.pendown then s.reward <- s.reward -. 1.;;*)
+	let cost = if (not s.pendown && not s.cost_when_penup) then 0. else 1. in
+	s.reward <- s.reward -. cost;;
 
 let ensure_location s =
 		if s.x = -1 || s.y = -1 then raise (Exception "Location is not set.");;
@@ -88,13 +90,13 @@ ignore(primitive "grid_move" (tgrid_cont @> tgrid_cont)
 ignore(primitive "grid_dopendown" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
 		ensure_location(s);
-		step_cost(s);
+		if s.cost_pen_change then step_cost(s);
 		s.pendown <- true;
 		k(s)));;
 ignore(primitive "grid_dopenup" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
 		ensure_location(s);
-		step_cost(s);
+		if s.cost_pen_change then step_cost(s);
 		s.pendown <- false;
 		k(s)));;
 ignore(primitive "grid_setlocation" (tint @> tint @> tgrid_cont @> tgrid_cont)
@@ -148,7 +150,7 @@ ignore(primitive "grid_embed" ((tgrid_cont @> tgrid_cont) @> tgrid_cont @> tgrid
 		let ns = k(s) in
 		ns));;
 
-let evaluate_GRID timeout p start x y =
+let evaluate_GRID timeout p state =
     begin
       (* Printf.eprintf "%s\n" (string_of_program p); *)
       let p = analyze_lazy_evaluation p in
@@ -156,8 +158,7 @@ let evaluate_GRID timeout p start x y =
         try
           match run_for_interval
                   timeout
-                  (fun () -> run_lazy_analyzed_with_arguments p [fun s -> s]
-										{reward=0.; board=start; w=(Array.length start); h=(Array.length start.(0)); dir=up; pendown=true; x=x; y=y})
+                  (fun () -> run_lazy_analyzed_with_arguments p [fun s -> s] state)
           with
           | Some(p) ->
             Some(p)
@@ -182,7 +183,7 @@ let score_shortest_path final goal =
 	let hit = (final.board = goal) in
 	if hit then final.reward else log 0.;;
 
-let score_progress final goal =
+let score_progress_old partial_progress_weight invtemp final goal =
 	let hit = (final.board = goal) in
 	let sum_ = (fun (a : int array) : int -> (Array.fold_right ~f:(fun acc x -> acc + x) ~init:0 a)) in
 	let map2rew = (fun (a : bool array) (b : bool array) : (int array) ->
@@ -191,7 +192,20 @@ let score_progress final goal =
 		(idx + 1, acc + (sum_ (map2rew goal.(idx) final.board.(idx))))
 	) goal ~init:(0, 0) in
 	(*Printf.eprintf "%s hit=%s rew=%f\n" (string_of_program p) (if hit then "true" else "false") (final.reward +. (if hit then 0. else -1000.));*)
-	3. *. (float_of_int match_reward) +. final.reward +. (if hit then 0. else -1000.);;
+	partial_progress_weight *. (float_of_int match_reward) +. invtemp *. final.reward +. (if hit then 0. else -1000.);;
+
+let score_progress partial_progress_weight invtemp final goal =
+	let hit = (final.board = goal) in
+	let incorrect = ref 0 in
+	let notdone = ref 0 in
+	for x = 0 to ((Array.length goal)-1) do
+		for y = 0 to ((Array.length goal.(0))-1) do
+			if final.board.(x).(y) && not goal.(x).(y) then incorrect := !incorrect + 1;
+			if not final.board.(x).(y) && goal.(x).(y) then notdone := !notdone + 1;
+		done;
+	done;
+	if !incorrect <> 0 then log 0. else
+	partial_progress_weight *. (-.(float_of_int !notdone)) +. invtemp *. final.reward +. (if hit then 0. else -1000.);;
 
 register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
     name task_type examples ->
@@ -212,11 +226,21 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 	let invtemp = extra |> member "invtemp" |> to_float
 	in
 	let try_all_start = extra |> member "try_all_start" |> to_bool in
+	let partial_progress_weight = extra |> member "partial_progress_weight" |> to_float in
+	let cost_pen_change = extra |> member "settings" |> member "cost_pen_change" |> to_bool in
+	let cost_when_penup = extra |> member "settings" |> member "cost_when_penup" |> to_bool in
+
 	let copyarr a = Array.map ~f:(Array.copy) a in
+	let board_state start x y = {
+		reward=0.; board=start; w=(Array.length start); h=(Array.length start.(0)); dir=up; pendown=true; x=x; y=y;
+		cost_pen_change=cost_pen_change; cost_when_penup=cost_when_penup;
+	} in
 
 	let score_program p s x y =
-		match (evaluate_GRID timeout p s x y) with
-			| Some(final) -> if invtemp = 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
+		match (board_state s x y |> evaluate_GRID timeout p) with
+			| Some(final) ->
+				if partial_progress_weight <> 0. then (score_progress partial_progress_weight invtemp final goal) else
+				if invtemp = 0. then (score_binary final goal) else (invtemp *. score_shortest_path final goal)
 			(* if we can't execute, then we shouldn't consider this one *)
 			| _ -> log 0.
 	in
@@ -249,51 +273,3 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 			else score_program_one_start p x y)
   })
 ;;
-
-let () =
-	let defaultTimeout = 0.1 in
-
-	(*
-	The order of these yojson imports is important; in particular, the to_string util used below is defined in both places.
-	The one is Yojson.Basic will add quotes around the input? But we don't want that, we want to parse the JSON to a string
-	*)
-	let open Yojson.Basic in
-	let open Yojson.Basic.Util in
-
-	let rec unpack x =
-		try magical (x |> to_int) with _ ->
-		try magical (x |> to_number) with _ ->
-		try magical (x |> to_bool) with _ ->
-		try
-			let v = x |> to_string in
-			if String.length v = 1 then magical v.[0] else magical v
-		with _ ->
-		try
-			x |> to_list |> List.map ~f:unpack |> magical
-		with _ -> raise (Failure "could not unpack")
-	in
-
-	(* Compression.ml also has code for loading from file in argv *)
-	let j = Yojson.Basic.from_channel Pervasives.stdin in
-
-	(* First, we load the task *)
-	let t = j |> member "task" in
-	let e = t |> member "examples" |> to_list in
-	let task_type = t |> member "request" |> deserialize_type in
-	let examples = e |> List.map ~f:(fun ex -> (
-		ex |> member "inputs" |> to_list |> List.map ~f:unpack,
-		ex |> member "output" |> unpack)) in
-	let name = t |> member "name" |> to_string in
-	let special = t |> member "specialTask" |> to_string in
-	let handler = special |> Hashtbl.find task_handler |> get_some in
-	let task = handler (t |> member "extras") ~timeout:defaultTimeout name task_type examples in
-
-	(* Then we load the program *)
-	let program = j |> member "program" |> to_string |> parse_program |> get_some in
-
-	(* And evaluate the program on the task! *)
-	let ll = task.log_likelihood program in
-
-	(* Generating output here *)
-	let j = `Assoc(["logLikelihood",`Float(ll);]) in
-	pretty_to_string j |> print_string;;

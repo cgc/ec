@@ -4,11 +4,15 @@ from dreamcoder.dreamcoder import *
 from dreamcoder.utilities import *
 import pickle, os
 import joblib
+from collections import namedtuple
 from dreamcoder.utilities import numberOfCPUs
 
 import torch.nn as nn
 import torch.nn.functional as F
 from dreamcoder.recognition import variable
+
+Settings = namedtuple('Settings', ['cost_pen_change', 'cost_when_penup'])
+SETTINGS = Settings(cost_pen_change=False, cost_when_penup=False)
 
 class Flatten(nn.Module):
     def __init__(self):
@@ -18,6 +22,7 @@ class Flatten(nn.Module):
 
 class GridCNN(nn.Module):
     fixed_location = (1, 1)
+    newGridTask = lambda *args, **kwargs: GridTask(*args, **kwargs)
 
     def __init__(self,tasks,testingTasks=[],cuda=False):
         super(GridCNN,self).__init__()
@@ -61,13 +66,13 @@ class GridCNN(nn.Module):
         # Excluding trivial programs so we don't get confused about samples
         if str(p) == '(lambda $0)':
             return None
-        start_state=GridState(np.zeros((4,4)),GridCNN.fixed_location)
+        start_state=GridState(np.zeros((4,4)),GridCNN.fixed_location, settings=SETTINGS)
         p1=executeGrid(p,start_state)
         if p1 is None:
             print(f'non-trivial program had an execution error: {p}')
             return None
         assert p1.grid.shape == start_state.grid.shape
-        t=GridTask("grid dream",start=start_state.grid,goal=p1.grid,location=start_state.location)
+        t=GridCNN.newGridTask("grid dream",start=start_state.grid,goal=p1.grid,location=start_state.location)
         return t
 
 
@@ -79,7 +84,7 @@ class GridException(Exception):
 
 currdir = os.path.abspath(os.path.dirname(__file__))
 
-def tasks_from_grammar_boards():
+def tasks_from_grammar_boards(newGridTask):
     with open(f'{currdir}/grammar_boards.pkl', 'rb') as f:
         boards = pickle.load(f)
 
@@ -87,40 +92,41 @@ def tasks_from_grammar_boards():
          board = np.asarray(board).reshape((4, 4))
          start = steps[0]
          loc = next(zip(*np.where(start)))
-         yield GridTask(f'grammar_boards.pkl[{idx}]', start=start, goal=board, location=loc)
+         yield newGridTask(f'grammar_boards.pkl[{idx}]', start=start, goal=board, location=loc)
 
-def tasks_people_gibbs():
+def tasks_people_gibbs(newGridTask):
     import numpy as np
     boards = np.load(f'{currdir}/people_sampled_boards.npy')
     for idx, board in enumerate(boards):
         start = np.zeros(boards.shape[1:])
         location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
         start[location] = 1
-        yield GridTask(
+        yield newGridTask(
             f'people_sampled_boards.npy[{idx}]',
             start=start, goal=board, location=location)
 
-def tree_tasks():
+def tree_tasks(newGridTask):
     st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
     loc = (2, 0)
     st[loc] = 1
     return [
-        GridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
-        GridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
-        GridTask(f'both', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]])),
-        GridTask(f'both-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 0]])),
-        GridTask(f'both-rightboth', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 1, 0], [1, 1, 1]])),
-        GridTask(f'both-rightboth-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 1]])),
+        newGridTask(f'left', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 0, 0]])),
+        newGridTask(f'right', start=st, location=loc, goal=np.array([[0, 0, 0], [0, 0, 0], [1, 1, 0]])),
+        newGridTask(f'both', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 0, 0], [1, 1, 0]])),
+        newGridTask(f'both-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 0]])),
+        newGridTask(f'both-rightboth', start=st, location=loc, goal=np.array([[0, 0, 0], [1, 1, 0], [1, 1, 1]])),
+        newGridTask(f'both-rightboth-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 1]])),
     ]
 
 
 class GridState:
-    def __init__(self, start, location, *, orientation=0, pendown=True, history=None, reward=0.):
+    def __init__(self, start, location, *, orientation=0, pendown=True, history=None, reward=0., settings=None):
         self.grid = start
         self.location = location
         self.orientation = orientation % 4 # [0, 1, 2, 3]
         self.pendown = pendown
         self.reward = reward
+        self.settings = settings
 
         # HACK ordering of next statements is intentional to avoid saving `history` into the history.
         if history is not None:
@@ -131,7 +137,10 @@ class GridState:
     def next_state(self, **kwargs):
         a = dict(self.__dict__, **kwargs)
         if a.pop('step_cost', False):
-            a['reward'] -= 1
+            cost = 1
+            if not self.pendown and not self.settings.cost_when_penup:
+                cost = 0
+            a['reward'] -= cost
         return type(self)(a.pop('grid'), a.pop('location'), **a)
     def left(self):
         self._ensure_location()
@@ -162,10 +171,10 @@ class GridState:
         return self.next_state(grid=grid, location=(x, y), step_cost=True)
     def dopendown(self):
         self._ensure_location()
-        return self.next_state(pendown=True, step_cost=True)
+        return self.next_state(pendown=True, step_cost=self.settings.cost_pen_change)
     def dopenup(self):
         self._ensure_location()
-        return self.next_state(pendown=False, step_cost=True)
+        return self.next_state(pendown=False, step_cost=self.settings.cost_pen_change)
     def setlocation(self, location):
         if self.location != (-1, -1):
             raise GridException('Location can only be set when unspecified.')
@@ -182,17 +191,19 @@ class GridState:
         if self.location == (-1, -1):
             raise GridException('Location must be set')
     def __repr__(self):
-        return f'GridState({self.grid}, {self.location}, orientation={self.orientation}, pendown={self.pendown})'
+        return f'GridState({self.grid}, {self.location}, orientation={self.orientation}, pendown={self.pendown}, settings={self.settings})'
 
 
 class GridTask(Task):
-    def __init__(self, name, start, goal, location, *, invtemp=1., try_all_start=False):
+    def __init__(self, name, start, goal, location, *, invtemp=1., partial_progress_weight=0., try_all_start=False, settings=SETTINGS):
         assert start.shape == goal.shape
         assert location == (-1, -1) or (0 <= location[0] < start.shape[0] and 0 <= location[1] < start.shape[1])
         self.start = start
         self.goal = goal
         self.location = location
         self.invtemp = invtemp
+        self.partial_progress_weight = partial_progress_weight
+        self.settings = settings
         self.try_all_start = try_all_start
         super().__init__(name, arrow(tgrid_cont,tgrid_cont), [], features=[])
 
@@ -203,23 +214,50 @@ class GridTask(Task):
             "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
             "location": tuple(map(int, self.location)),
             "invtemp": self.invtemp,
+            "partial_progress_weight": self.partial_progress_weight,
             "try_all_start": self.try_all_start,
+            "settings": self.settings._asdict(),
         })
 
     def _score_from_location(self, e, state, *, timeout=None):
         yh = executeGrid(e, state, timeout=timeout)
-        if yh is not None and np.all(yh.grid == self.goal): return self.invtemp * yh.reward
+
+        if yh is None:
+            return NEGATIVEINFINITY
+
+        correct = np.all(yh.grid == self.goal)
+
+        if self.partial_progress_weight != 0:
+            '''
+            num_incorrect = (yh.grid != self.goal).sum()
+            return (
+                (0 if correct else -1000)
+                + self.invtemp * yh.reward
+                - self.partial_progress_weight * num_incorrect)
+            '''
+            final = yh.grid.astype(bool)
+            goal = self.goal.astype(bool)
+            if np.any(final & ~goal):
+                return NEGATIVEINFINITY
+            num_not_done = (~final & goal).sum()
+            return (
+                (0 if correct else -1000)
+                + self.invtemp * yh.reward
+                - self.partial_progress_weight * num_not_done)
+
+        if correct:
+            return self.invtemp * yh.reward
         return NEGATIVEINFINITY
 
     def logLikelihood(self, e, timeout=None):
         if self.try_all_start:
             return max(
-                self._score_from_location(e, GridState(self.start, (-1, -1)).setlocation((x, y)), timeout=timeout)
+                self._score_from_location(e, GridState(self.start, (-1, -1), settings=self.settings).setlocation((x, y)), timeout=timeout)
                 for x in range(self.start.shape[0])
                 for y in range(self.start.shape[1])
             )
         else:
-            return self._score_from_location(e, GridState(self.start, self.location), timeout=timeout)
+            return self._score_from_location(e, GridState(self.start, self.location, settings=self.settings), timeout=timeout)
 
 def parseGrid(s):
     from sexpdata import loads, Symbol
@@ -364,6 +402,9 @@ def executeGrid(p, state, *, timeout=None):
     except GridException: return None
 
 def parseArgs(parser):
+    def boolarg(name, default):
+        parser.add_argument(f'--{name}', dest=name, default=default, action='store_true')
+        parser.add_argument(f'--no-{name}', dest=name, default=default, action='store_false')
     parser.add_argument(
         "-f",
         dest="DELETE_var",
@@ -372,7 +413,9 @@ def parseArgs(parser):
         type=str)
     parser.add_argument("--task", dest="task", default="grammar")
     parser.add_argument("--grammar", dest="grammar", default='pen', type=str)
-    parser.add_argument("--try_all_start", dest="try_all_start", default=False, action='store_true')
+    parser.add_argument("--invtemp", dest="invtemp", default=1., type=float)
+    parser.add_argument("--partial_progress_weight", dest="partial_progress_weight", default=0., type=float)
+    boolarg('try_all_start', False)
 
 if __name__ == '__main__':
     arguments = commandlineArguments(
@@ -394,6 +437,8 @@ if __name__ == '__main__':
     del arguments['DELETE_var']
     taskname = arguments.pop('task')
     try_all_start = arguments.pop('try_all_start')
+    invtemp = arguments.pop('invtemp')
+    partial_progress_weight = arguments.pop('partial_progress_weight')
 
     grammar = arguments.pop('grammar')
     p = dict(
@@ -404,13 +449,19 @@ if __name__ == '__main__':
 
     using_setloc = any(prim.name == 'grid_setlocation' for prim in p)
 
+    newGridTask = lambda *args, **kwargs: GridTask(
+        *args,
+        try_all_start=try_all_start,
+        invtemp=invtemp,
+        partial_progress_weight=partial_progress_weight,
+        **kwargs)
     # task dist
     train_dict = dict(
-        grammar=tasks_from_grammar_boards(),
-        people_gibbs=tasks_people_gibbs(),
-        tree=tree_tasks(),
+        grammar=tasks_from_grammar_boards,
+        people_gibbs=tasks_people_gibbs,
+        tree=tree_tasks,
     )
-    train = list(train_dict[taskname])
+    train = list(train_dict[taskname](newGridTask))
     if using_setloc:
         # make_grammar below will always start a program with setlocation when this is true,
         # so we have to make GridCNN use it too
@@ -421,10 +472,11 @@ if __name__ == '__main__':
         for task in train:
             task.start = np.zeros(task.start.shape)
             task.location = (-1, -1)
-    if try_all_start:
-        for task in train:
-            task.try_all_start = try_all_start
+
+    # Once the training tasks have been configured, we set the test tasks as well.
     test = train
+    # We also make sure recognition makes tasks in the same way.
+    GridCNN.newGridTask = newGridTask
 
     g0 = Grammar.uniform(
         p,
