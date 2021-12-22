@@ -117,6 +117,32 @@ def test_grid_embed():
     # Accumulates reward appropriately for grid_embed
     check_log_likelihood(program, grid.GridTask("test case", start, goal, location), -6)
 
+def test_grid_with_penup():
+    start = np.zeros((3, 3))
+    location = (2, 0)
+    goal = np.array([
+        [0, 1, 0],
+        [1, 0, 0],
+        [0, 0, 0],
+    ])
+
+    program = grid.parseGrid('''(
+        (grid_move)
+        (
+            grid_with_penup
+            (grid_move)
+        )
+        (grid_right)
+        (grid_move)
+    )''')
+    final = grid.executeGrid(program, grid.GridState(start, location, settings=grid.SETTINGS))
+    assert np.all(final.grid == goal), final
+    for s, expected_cost in [
+        (grid.Settings(cost_pen_change=False, cost_when_penup=False), -3),
+        (grid.Settings(cost_pen_change=True, cost_when_penup=True), -4),
+    ]:
+        check_log_likelihood(program, grid.GridTask("test case", start, goal, location, settings=s), expected_cost)
+
 def test_setlocation():
     start = np.zeros((3, 3))
 

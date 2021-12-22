@@ -118,6 +118,37 @@ def tree_tasks(newGridTask):
         newGridTask(f'both-rightboth-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 1]])),
     ]
 
+def discon_tasks(newGridTask):
+    '''
+    # We can solve this really naive one with pen or penctx
+    return [
+        newGridTask(f'discon', start=np.zeros((1, 3)), location=(-1, -1), goal=np.array([[1, 0, 1]]))
+    ]
+    '''
+
+    st = np.zeros((4, 4))
+
+    ts = []
+
+    def add_tasks(*locs):
+        ts.append(np.copy(st))
+        for loc in locs:
+            ts[-1][:, loc] = 1
+
+        ts.append(np.copy(st))
+        for loc in locs:
+            ts[-1][loc, :] = 1
+
+    add_tasks(0)
+    add_tasks(0, 2)
+    add_tasks(0, 3)
+    add_tasks(1, 3)
+
+    return [
+        newGridTask(f'ts[{i}]', start=st, location=(-1, -1), goal=t)
+        for i, t in enumerate(ts)
+    ]
+
 
 class GridState:
     def __init__(self, start, location, *, orientation=0, pendown=True, history=None, reward=0., settings=None):
@@ -263,13 +294,12 @@ class GridTask(Task):
 def parseGrid(s):
     from sexpdata import loads, Symbol
     s = loads(s)
-    _e = Program.parse("grid_embed")
     def command(k, environment, continuation):
         assert isinstance(k,list)
         if k[0] in (
             Symbol("grid_right"), Symbol("grid_left"),
-            Symbol("grid_move"), Symbol("grid_dopenup"),
-            Symbol("grid_dopendown"),
+            Symbol("grid_move"),
+            Symbol("grid_dopenup"), Symbol("grid_dopendown"),
         ):
             assert len(k) == 1
             return Application(Program.parse(k[0].value()),continuation)
@@ -282,11 +312,14 @@ def parseGrid(s):
                     Application(Program.parse(k[0].value()), expression(k[1], environment)),
                     expression(k[2], environment)),
             continuation)
-        if k[0] == Symbol("grid_embed"):
+        if k[0] in (
+            Symbol("grid_embed"),
+            Symbol("grid_with_penup"),
+        ):
             # TODO issues with incorrect continuations probably need to be dealt with here
             # I think the issue is that we hardcode Index(0)?
             body = block(k[1:], [None] + environment, Index(0))
-            return Application(Application(_e,Abstraction(body)),continuation)
+            return Application(Application(Program.parse(k[0].value()),Abstraction(body)),continuation)
         assert False
 
     def expression(e, environment):
@@ -334,6 +367,18 @@ def _grid_embed(body):
         return g
     return f
 
+def _grid_with_penup(body):
+    def f(k):
+        def g(s):
+            # HACK: we explicitly do next_state instead of dopen* to avoid the step cost.
+            identity = lambda x: x # HACK: see above note in grid_embed impl
+            # We first run body without pen
+            ns = body(identity)(s.next_state(pendown=False))
+            # Then bring pen back
+            return k(ns.next_state(pendown=True))
+        return g
+    return f
+
 # TODO still not clear to me what types are doing in Python; how is this bound? Does it require definition in ocaml?
 tgrid_cont = baseType("grid_cont")
 primitives_base = [
@@ -346,6 +391,10 @@ primitives_base = [
 primitives_pen = primitives_base + [
     Primitive("grid_dopendown", arrow(tgrid_cont, tgrid_cont), _grid_dopendown),
     Primitive("grid_dopenup", arrow(tgrid_cont, tgrid_cont), _grid_dopenup),
+]
+
+primitives_penctx = primitives_base + [
+    Primitive("grid_with_penup", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_with_penup),
 ]
 
 primitives_numbers_only = [
@@ -445,6 +494,7 @@ if __name__ == '__main__':
     p = dict(
         no_pen=primitives_base,
         pen=primitives_pen,
+        penctx=primitives_penctx,
         pen_setloc=primitives_loc,
     )[grammar]
 
@@ -461,6 +511,7 @@ if __name__ == '__main__':
         grammar=tasks_from_grammar_boards,
         people_gibbs=tasks_people_gibbs,
         tree=tree_tasks,
+        discon=discon_tasks,
     )
     train = list(train_dict[taskname](newGridTask))
     if using_setloc:

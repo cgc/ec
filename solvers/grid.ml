@@ -150,6 +150,17 @@ ignore(primitive "grid_embed" ((tgrid_cont @> tgrid_cont) @> tgrid_cont @> tgrid
 		let ns = k(s) in
 		ns));;
 
+ignore(primitive "grid_with_penup" ((tgrid_cont @> tgrid_cont) @> tgrid_cont @> tgrid_cont)
+	(fun (body: grid_cont -> grid_cont) (k: grid_cont) (s: grid_state) : grid_state ->
+		(* penup *)
+		s.pendown <- false;
+		(* run the body *)
+		let _ = body (fun s -> s) s in
+		(* pendown *)
+		s.pendown <- true;
+		(* execute rest of program *)
+		k(s)));;
+
 let evaluate_GRID timeout p state =
     begin
       (* Printf.eprintf "%s\n" (string_of_program p); *)
