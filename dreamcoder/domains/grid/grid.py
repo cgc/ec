@@ -217,6 +217,7 @@ class GridTask(Task):
             "partial_progress_weight": self.partial_progress_weight,
             "try_all_start": self.try_all_start,
             "settings": self.settings._asdict(),
+            "log_program": False,
         })
 
     def _score_from_location(self, e, state, *, timeout=None):

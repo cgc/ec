@@ -229,6 +229,7 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
 	let partial_progress_weight = extra |> member "partial_progress_weight" |> to_float in
 	let cost_pen_change = extra |> member "settings" |> member "cost_pen_change" |> to_bool in
 	let cost_when_penup = extra |> member "settings" |> member "cost_when_penup" |> to_bool in
+	let log_program = extra |> member "log_program" |> to_bool in
 
 	let copyarr a = Array.map ~f:(Array.copy) a in
 	let board_state start x y = {
@@ -269,6 +270,7 @@ register_special_task "GridTask" (fun extra ?timeout:(timeout = 0.001)
   { name = name    ;
     task_type = task_type ;
     log_likelihood = (fun p : float ->
+			if log_program then Printf.eprintf "%s\n" (string_of_program p);
 			if try_all_start then score_program_all_start p
 			else score_program_one_start p x y)
   })
