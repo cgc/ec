@@ -2,22 +2,23 @@ function exp() {
   command python -m dreamcoder.domains.grid.grid -c 1 -i 4 --enumerationTimeout 60 "$@"
 }
 
-exp --task grammar --no-recognition |& tee grammar-norec.log
-exp --task people_gibbs --no-recognition |& tee people_gibbs-norec.log
-exp --task grammar |& tee grammar-rec.log
-exp --task people_gibbs |& tee people_gibbs-rec.log
+for task in discon; do
+  for ppw in 0 2 3 10; do
+    for prim in pen penctx explicit_mark; do
+      exp --task $task --no-recognition --try_all_start --partial_progress_weight $ppw --grammar $prim |& tee ppw${ppw}-${task}-${prim}-norec.log
+    done
+  done
+done
 
-exp --task grammar --no-recognition --try_all_start |& tee tas-grammar-norec.log
-exp --task people_gibbs --no-recognition --try_all_start |& tee tas-people_gibbs-norec.log
-exp --task grammar --try_all_start |& tee tas-grammar-rec.log
-exp --task people_gibbs --try_all_start |& tee tas-people_gibbs-rec.log
+for task in discon grammar people_gibbs; do
+  for ppw in 1 2 3 10; do
+    exp --task $task --no-recognition --try_all_start --partial_progress_weight $ppw |& tee ppw${ppw}-${task}-norec.log
+  done
+done
 
-exp --task grammar --no-recognition --try_all_start --partial_progress_weight 1 |& tee ppw1-grammar-norec.log
-exp --task grammar --no-recognition --try_all_start --partial_progress_weight 2 |& tee ppw2-grammar-norec.log
-exp --task grammar --no-recognition --try_all_start --partial_progress_weight 3 |& tee ppw3-grammar-norec.log
-exp --task grammar --no-recognition --try_all_start --partial_progress_weight 10 |& tee ppw10-grammar-norec.log
-
-exp --task people_gibbs --no-recognition --try_all_start --partial_progress_weight 1 |& tee ppw1-people_gibbs-norec.log
-exp --task people_gibbs --no-recognition --try_all_start --partial_progress_weight 2 |& tee ppw2-people_gibbs-norec.log
-exp --task people_gibbs --no-recognition --try_all_start --partial_progress_weight 3 |& tee ppw3-people_gibbs-norec.log
-exp --task people_gibbs --no-recognition --try_all_start --partial_progress_weight 10 |& tee ppw10-people_gibbs-norec.log
+for task in discon grammar people_gibbs; do
+  exp --task $task --no-recognition |& tee ${task}-norec.log
+  exp --task $task --no-recognition --try_all_start |& tee tas-${task}-norec.log
+  exp --task $task --recognition |& tee ${task}-rec.log
+  exp --task $task --recognition --try_all_start |& tee tas-${task}-rec.log
+done
