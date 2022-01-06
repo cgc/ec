@@ -113,7 +113,7 @@ def ocamlInduce(g, frontiers, _=None,
             CPUs = max(1, int(CPUs / 3))
     else:
         CPUs = max(1, int(CPUs / 2))
-    CPUs = 2
+    #CPUs = 2
 
     # X X X FIXME X X X
     # for unknown reasons doing compression all in one go works correctly and doing it with Python and the outer loop causes problems
