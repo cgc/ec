@@ -143,6 +143,27 @@ def test_grid_with_penup():
     ]:
         check_log_likelihood(program, grid.GridTask("test case", start, goal, location, settings=s), expected_cost)
 
+def test_grid_explicit_mark():
+    start = np.zeros((3, 3))
+    location = (2, 0)
+    goal = np.array([
+        [0, 1, 0],
+        [1, 0, 0],
+        [0, 0, 0],
+    ])
+
+    program = grid.parseGrid('''(
+        (grid_move_no_mark)
+        (grid_mark_current_location)
+        (grid_move_no_mark)
+        (grid_right)
+        (grid_move_no_mark)
+        (grid_mark_current_location)
+    )''')
+    final = grid.executeGrid(program, grid.GridState(start, location, settings=grid.SETTINGS))
+    assert np.all(final.grid == goal), final
+    check_log_likelihood(program, grid.GridTask("test case", start, goal, location), -6)
+
 def test_setlocation():
     start = np.zeros((3, 3))
 

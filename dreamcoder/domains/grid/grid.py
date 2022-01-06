@@ -174,7 +174,15 @@ class GridState:
     def right(self):
         self._ensure_location()
         return self.next_state(orientation=self.orientation + 1, step_cost=True)
+
     def move(self):
+        # HACK: we don't compose `move_no_mark` here b/c it would add an extra step cost.
+        return self.next_state(location=self._move_location()).mark_current_location()
+
+    def move_no_mark(self):
+        return self.next_state(location=self._move_location(), step_cost=True)
+
+    def _move_location(self):
         self._ensure_location()
         dx, dy = [
             (-1, 0), # up
@@ -190,11 +198,16 @@ class GridState:
         y = prevy + dy
         if not (0 <= y < ylim):
             y = prevy
+        return x, y
+
+    def mark_current_location(self):
+        self._ensure_location()
         grid = self.grid
         if self.pendown:
             grid = np.copy(grid)
-            grid[x, y] = 1
-        return self.next_state(grid=grid, location=(x, y), step_cost=True)
+            grid[self.location] = 1
+        return self.next_state(grid=grid, step_cost=True)
+
     def dopendown(self):
         self._ensure_location()
         return self.next_state(pendown=True, step_cost=self.settings.cost_pen_change)
@@ -294,6 +307,8 @@ def parseGrid(s):
         if k[0] in (
             Symbol("grid_right"), Symbol("grid_left"),
             Symbol("grid_move"),
+            Symbol("grid_move_no_mark"),
+            Symbol("grid_mark_current_location"),
             Symbol("grid_dopenup"), Symbol("grid_dopendown"),
         ):
             assert len(k) == 1
@@ -344,6 +359,8 @@ def _grid_right(k): return lambda s: k(s.right())
 def _grid_move(k): return lambda s: k(s.move())
 def _grid_dopendown(k): return lambda s: k(s.dopendown())
 def _grid_dopenup(k): return lambda s: k(s.dopenup())
+def _grid_move_no_mark(k): return lambda s: k(s.move_no_mark())
+def _grid_mark_current_location(k): return lambda s: k(s.mark_current_location())
 def _grid_setlocation(x): return lambda y: lambda k: lambda s: k(s.setlocation((x, y)))
 
 def _grid_embed(body):
@@ -399,6 +416,14 @@ primitives_numbers_only = [
 primitives_loc = primitives_pen + [
     Primitive("grid_setlocation", arrow(tint, tint, tgrid_cont, tgrid_cont), _grid_setlocation),
 ] + primitives_numbers_only
+
+primitives_explicit_mark = [
+    Primitive("grid_left", arrow(tgrid_cont, tgrid_cont), _grid_left),
+    Primitive("grid_right", arrow(tgrid_cont, tgrid_cont), _grid_right),
+    Primitive("grid_move_no_mark", arrow(tgrid_cont, tgrid_cont), _grid_move_no_mark),
+    Primitive("grid_mark_current_location", arrow(tgrid_cont, tgrid_cont), _grid_mark_current_location),
+    Primitive("grid_embed", arrow(arrow(tgrid_cont, tgrid_cont), tgrid_cont, tgrid_cont), _grid_embed),
+]
 
 def uniform_with_excluded(primitives, excluded, continuationType):
     '''
@@ -491,6 +516,7 @@ if __name__ == '__main__':
         pen=primitives_pen,
         penctx=primitives_penctx,
         pen_setloc=primitives_loc,
+        explicit_mark=primitives_explicit_mark,
     )[grammar]
 
     using_setloc = any(prim.name == 'grid_setlocation' for prim in p)

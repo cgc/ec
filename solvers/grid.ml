@@ -41,9 +41,12 @@ let tgrid_cont = make_ground "grid_cont";;
 let mark_current_location s =
 	if s.pendown then s.board.(s.x).(s.y) <- true;;
 
-let move_forward s =
+let move_forward_no_mark s =
 	s.x <- max (min (s.x + s.dir.delta_x) (s.w-1)) 0;
-	s.y <- max (min (s.y + s.dir.delta_y) (s.h-1)) 0;
+	s.y <- max (min (s.y + s.dir.delta_y) (s.h-1)) 0;;
+
+let move_forward s =
+	move_forward_no_mark s;
 	mark_current_location s;;
 
 (* HACK seems influential on results to have these be constants vs variables
@@ -86,6 +89,18 @@ ignore(primitive "grid_move" (tgrid_cont @> tgrid_cont)
 		ensure_location(s);
 		step_cost(s);
 		move_forward(s);
+		k(s)));;
+ignore(primitive "grid_move_no_mark" (tgrid_cont @> tgrid_cont)
+	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
+		step_cost(s);
+		move_forward_no_mark(s);
+		k(s)));;
+ignore(primitive "grid_mark_current_location" (tgrid_cont @> tgrid_cont)
+	(fun (k: grid_cont) (s: grid_state) : grid_state ->
+		ensure_location(s);
+		step_cost(s);
+		mark_current_location(s);
 		k(s)));;
 ignore(primitive "grid_dopendown" (tgrid_cont @> tgrid_cont)
 	(fun (k: grid_cont) (s: grid_state) : grid_state ->
