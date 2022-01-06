@@ -119,13 +119,6 @@ def tree_tasks(newGridTask):
     ]
 
 def discon_tasks(newGridTask):
-    '''
-    # We can solve this really naive one with pen or penctx
-    return [
-        newGridTask(f'discon', start=np.zeros((1, 3)), location=(-1, -1), goal=np.array([[1, 0, 1]]))
-    ]
-    '''
-
     st = np.zeros((4, 4))
 
     ts = []
@@ -145,6 +138,8 @@ def discon_tasks(newGridTask):
     add_tasks(1, 3)
 
     return [
+        newGridTask(f'discon', start=np.zeros((1, 3)), location=(-1, -1), goal=np.array([[1, 0, 1]]))
+    ] + [
         newGridTask(f'ts[{i}]', start=st, location=(-1, -1), goal=t)
         for i, t in enumerate(ts)
     ]
@@ -541,6 +536,14 @@ if __name__ == '__main__':
                            testingTasks=test,
                            **arguments)
     for iter, result in enumerate(generator):
+        # HACK: does this factor in recognition?
+        total_hits = 0
+        for task in train:
+            es = result.frontiersOverTime[task][-1].entries
+            if any(e.logLikelihood > -500 for e in es):
+                total_hits += 1
+        print(f'Hits-Solutions {total_hits}/{len(train)}')
+
         print('-' * 100)
         print()
         print()
