@@ -1,3 +1,6 @@
+# Very verbose, basically everything that isn't a very noisy status message.
+export OCAMLRUNPARAM=v=0x5BD
+
 function exp() {
   command python -m dreamcoder.domains.grid.grid -c 1 -i 4 --enumerationTimeout 60 "$@"
 }

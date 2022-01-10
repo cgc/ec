@@ -137,8 +137,12 @@ def discon_tasks(newGridTask):
     add_tasks(0, 3)
     add_tasks(1, 3)
 
+    # Making a really simple shape that's disconnected, but also 4x4 for recognition (instead of the 3x1 this used to be)
+    g = np.copy(st)
+    g[0, 0] = 1
+    g[2, 0] = 1
     return [
-        newGridTask(f'discon', start=np.zeros((1, 3)), location=(-1, -1), goal=np.array([[1, 0, 1]]))
+        newGridTask(f'discon', start=st, location=(-1, -1), goal=g)
     ] + [
         newGridTask(f'ts[{i}]', start=st, location=(-1, -1), goal=t)
         for i, t in enumerate(ts)
