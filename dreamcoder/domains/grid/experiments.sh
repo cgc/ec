@@ -24,4 +24,8 @@ for task in discon grammar people_gibbs; do
   exp --task $task --no-recognition --try_all_start |& tee tas-${task}-norec.log
   exp --task $task --recognition |& tee ${task}-rec.log
   exp --task $task --recognition --try_all_start |& tee tas-${task}-rec.log
+
+  for prim in penctx explicit_mark; do
+    exp --task $task --no-recognition --try_all_start --grammar $prim |& tee tas-${task}-${prim}-norec.log
+  done
 done
