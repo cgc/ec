@@ -6,6 +6,7 @@ import pickle, os
 import joblib
 from collections import namedtuple
 from dreamcoder.utilities import numberOfCPUs
+import mlflow
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -144,7 +145,7 @@ def discon_tasks(newGridTask):
     return [
         newGridTask(f'discon', start=st, location=(-1, -1), goal=g)
     ] + [
-        newGridTask(f'ts[{i}]', start=st, location=(-1, -1), goal=t)
+        newGridTask(f'discon_{i}', start=st, location=(-1, -1), goal=t)
         for i, t in enumerate(ts)
     ]
 
@@ -565,24 +566,29 @@ if __name__ == '__main__':
     generator = ecIterator(g0, train,
                            testingTasks=test,
                            **arguments)
-    for iter, result in enumerate(generator):
-        # HACK: does this factor in recognition?
-        total_hits = 0
-        for task in train:
-            es = result.frontiersOverTime[task][-1].entries
-            if any(e.logLikelihood > -500 for e in es):
-                total_hits += 1
-        print(f'Hits-Solutions {total_hits}/{len(train)}')
+    with mlflow.start_run():
+        mlflow.log_params(arguments)
+        for iter, result in enumerate(generator):
+            # HACK: does this factor in recognition?
+            total_hits = 0
+            for task in train:
+                es = result.frontiersOverTime[task][-1].entries
+                if any(e.logLikelihood > -500 for e in es):
+                    total_hits += 1
+                v = max(e.logLikelihood for e in es) if es else -float('inf')
+                mlflow.log_metric(key=str(task), value=v, step=iter)
+            print(f'Hits-Solutions {total_hits}/{len(train)}')
+            mlflow.log_metric(key="solved", value=total_hits, step=iter)
 
-        print('-' * 100)
-        print()
-        print()
-        print()
-        print()
-        dir = f'{currdir}/output'
-        try:
-            os.mkdir(dir)
-        except:
-            pass
-        fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
-        joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
+            print('-' * 100)
+            print()
+            print()
+            print()
+            print()
+            dir = f'{currdir}/output'
+            try:
+                os.mkdir(dir)
+            except:
+                pass
+            fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
+            joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
