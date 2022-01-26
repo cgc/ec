@@ -7,6 +7,7 @@ import joblib
 from collections import namedtuple
 from dreamcoder.utilities import numberOfCPUs
 import mlflow
+import functools
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -14,6 +15,29 @@ from dreamcoder.recognition import variable
 
 Settings = namedtuple('Settings', ['cost_pen_change', 'cost_when_penup'])
 SETTINGS = Settings(cost_pen_change=False, cost_when_penup=False)
+
+def is_connected_shape(grid):
+    active = set(zip(*np.where(grid==1)))
+
+    visited = set()
+    q = [min(active)] # Arbitrarily pick a place to start
+    while q:
+        x, y = s = q.pop(0)
+        visited.add(s)
+        for dx, dy in [
+            (-1, 0),
+            (+1, 0),
+            (0, -1),
+            (0, +1),
+        ]:
+            nx = x + dx
+            ny = y + dy
+            ns = nx, ny
+            if ns in active and ns not in visited and ns not in q:
+                q.append(ns)
+
+    return len(visited) == len(active)
+
 
 class Flatten(nn.Module):
     def __init__(self):
@@ -93,17 +117,19 @@ def tasks_from_grammar_boards(newGridTask):
          board = np.asarray(board).reshape((4, 4))
          start = steps[0]
          loc = next(zip(*np.where(start)))
-         yield newGridTask(f'grammar_boards.pkl[{idx}]', start=start, goal=board, location=loc)
+         yield newGridTask(f'grammar_boards.pkl_{idx}', start=start, goal=board, location=loc)
 
-def tasks_people_gibbs(newGridTask):
+def tasks_people_gibbs(newGridTask, *, disconnected=False):
     import numpy as np
     boards = np.load(f'{currdir}/people_sampled_boards.npy')
     for idx, board in enumerate(boards):
+        if disconnected and is_connected_shape(board):
+            continue
         start = np.zeros(boards.shape[1:])
         location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
         start[location] = 1
         yield newGridTask(
-            f'people_sampled_boards.npy[{idx}]',
+            f'people_sampled_boards.npy_{idx}',
             start=start, goal=board, location=location)
 
 def tree_tasks(newGridTask):
@@ -119,7 +145,7 @@ def tree_tasks(newGridTask):
         newGridTask(f'both-rightboth-leftboth', start=st, location=loc, goal=np.array([[1, 0, 0], [1, 1, 0], [1, 1, 1]])),
     ]
 
-def discon_tasks(newGridTask):
+def discon_tasks(newGridTask, *, curriculum=True):
     st = np.zeros((4, 4))
 
     ts = []
@@ -133,18 +159,20 @@ def discon_tasks(newGridTask):
         for loc in locs:
             ts[-1][loc, :] = 1
 
-    add_tasks(0)
+    if curriculum:
+        # Making a really simple shape that's disconnected, but also 4x4 for recognition (instead of the 3x1 this used to be)
+        g = np.copy(st)
+        g[0, 0] = 1
+        g[2, 0] = 1
+        ts.append(g)
+
+        # And a shape with just one column; this functions as a curriculum for non-ppw
+        add_tasks(0)
     add_tasks(0, 2)
     add_tasks(0, 3)
     add_tasks(1, 3)
 
-    # Making a really simple shape that's disconnected, but also 4x4 for recognition (instead of the 3x1 this used to be)
-    g = np.copy(st)
-    g[0, 0] = 1
-    g[2, 0] = 1
     return [
-        newGridTask(f'discon', start=st, location=(-1, -1), goal=g)
-    ] + [
         newGridTask(f'discon_{i}', start=st, location=(-1, -1), goal=t)
         for i, t in enumerate(ts)
     ]
@@ -487,6 +515,7 @@ def parseArgs(parser):
         default='x',
         type=str)
     parser.add_argument("--task", dest="task", default="grammar")
+    parser.add_argument("--log_file_path_for_mlflow", dest="log_file_path_for_mlflow", help='This is the file our output is being written to. Python does not configure this, but assumes the command has been run so this is the case. It is uploaded to mlflow.')
     parser.add_argument("--grammar", dest="grammar", default='pen', type=str)
     parser.add_argument("--invtemp", dest="invtemp", default=1., type=float)
     parser.add_argument("--partial_progress_weight", dest="partial_progress_weight", default=0., type=float)
@@ -510,6 +539,10 @@ if __name__ == '__main__':
         CPUs=numberOfCPUs(),
     )
     del arguments['DELETE_var']
+    log_file_path_for_mlflow = arguments.pop('log_file_path_for_mlflow')
+
+    complete_arguments = dict(arguments)
+
     taskname = arguments.pop('task')
     try_all_start = arguments.pop('try_all_start')
     invtemp = arguments.pop('invtemp')
@@ -536,8 +569,10 @@ if __name__ == '__main__':
     train_dict = dict(
         grammar=tasks_from_grammar_boards,
         people_gibbs=tasks_people_gibbs,
+        people_gibbs_discon=functools.partial(tasks_people_gibbs, disconnected=True),
         tree=tree_tasks,
         discon=discon_tasks,
+        discon_no_curr=functools.partial(discon_tasks, curriculum=False),
     )
     train = list(train_dict[taskname](newGridTask))
     if using_setloc:
@@ -567,7 +602,7 @@ if __name__ == '__main__':
                            testingTasks=test,
                            **arguments)
     with mlflow.start_run():
-        mlflow.log_params(arguments)
+        mlflow.log_params(complete_arguments)
         for iter, result in enumerate(generator):
             # HACK: does this factor in recognition?
             total_hits = 0
@@ -580,11 +615,8 @@ if __name__ == '__main__':
             print(f'Hits-Solutions {total_hits}/{len(train)}')
             mlflow.log_metric(key="solved", value=total_hits, step=iter)
 
-            print('-' * 100)
-            print()
-            print()
-            print()
-            print()
+            print('-' * 100 + '\n' * 5)
+
             dir = f'{currdir}/output'
             try:
                 os.mkdir(dir)
@@ -592,3 +624,8 @@ if __name__ == '__main__':
                 pass
             fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
             joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
+            mlflow.log_artifact(fn)
+
+            # We do this on every iteration; the file just gets overwritten, but this lets us stay up-to-date.
+            if log_file_path_for_mlflow:
+                mlflow.log_artifact(log_file_path_for_mlflow)

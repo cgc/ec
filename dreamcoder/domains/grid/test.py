@@ -232,3 +232,17 @@ def test_partial_progress():
     # Now test something invalid
     program = grid.parseGrid('((grid_right) (grid_move))')
     check_log_likelihood(program, grid.GridTask("test case", start, goal, location, partial_progress_weight=1.), -inf)
+
+def test_is_connected_shape():
+    assert grid.is_connected_shape(np.array([
+        [0, 1, 1, 0],
+        [1, 1, 0, 1],
+        [1, 0, 0, 1],
+        [1, 1, 1, 1],
+    ]))
+    assert not grid.is_connected_shape(np.array([
+        [0, 1, 1, 0],
+        [1, 1, 0, 1],
+        [1, 0, 0, 1],
+        [0, 1, 1, 1],
+    ]))
