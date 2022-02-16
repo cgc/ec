@@ -539,10 +539,10 @@ if __name__ == '__main__':
         CPUs=numberOfCPUs(),
     )
     del arguments['DELETE_var']
-    log_file_path_for_mlflow = arguments.pop('log_file_path_for_mlflow')
 
     complete_arguments = dict(arguments)
 
+    log_file_path_for_mlflow = arguments.pop('log_file_path_for_mlflow')
     taskname = arguments.pop('task')
     try_all_start = arguments.pop('try_all_start')
     invtemp = arguments.pop('invtemp')
@@ -617,6 +617,7 @@ if __name__ == '__main__':
 
             print('-' * 100 + '\n' * 5)
 
+            '''
             dir = f'{currdir}/output'
             try:
                 os.mkdir(dir)
@@ -625,6 +626,7 @@ if __name__ == '__main__':
             fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
             joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
             mlflow.log_artifact(fn)
+            '''
 
             # We do this on every iteration; the file just gets overwritten, but this lets us stay up-to-date.
             if log_file_path_for_mlflow:

@@ -1,18 +1,35 @@
 # Very verbose, basically everything that isn't a very noisy status message.
 # export OCAMLRUNPARAM=v=0x5BD
 
-function exp() {
-  command python -m dreamcoder.domains.grid.grid -c 1 -i 4 --enumerationTimeout 60 "$@" --log_file_path_for_mlflow output.log |& tee output.log
+# https://stackoverflow.com/questions/3004811/how-do-you-run-multiple-programs-in-parallel-from-a-bash-script
+trap 'kill 0' SIGINT
+
+function max_jobs {
+   while [ `jobs -r -p | wc -l` -ge $1 ]; do
+      sleep 1
+   done
 }
 
-for task in discon_no_curr discon people_gibbs_discon people_gibbs; do
+
+function exp() {
+  LOGFILE=logoutput/$(cat /dev/urandom | tr -cd 'a-f0-9' | head -c 32).log
+  touch $LOGFILE
+  command singularity-venv/bin/python3 -m dreamcoder.domains.grid.grid -c 1 -i 4 --enumerationTimeout 60 "$@" --log_file_path_for_mlflow $LOGFILE |& tee $LOGFILE
+}
+
+#for recogflag in --no-recognition --recognition; do
+for recogflag in --recognition; do
   for arity in 1 2 3; do
-    for recogflag in --no-recognition --recognition; do
-      for ppw in 0 1 2 3 10; do
-        for prim in pen penctx explicit_mark; do
-          exp $recogflag --task $task --try_all_start --partial_progress_weight $ppw --grammar $prim --arity $arity
+    for task in discon people_gibbs_discon people_gibbs; do
+      for prim in pen penctx explicit_mark; do
+        for ppw in 0 1 2 3 10; do
+          max_jobs 2
+          sleep 1 # adding this so jobs are ordered in output
+          exp $recogflag --task $task --try_all_start --partial_progress_weight $ppw --grammar $prim --arity $arity &
         done
       done
     done
   done
 done
+
+wait
