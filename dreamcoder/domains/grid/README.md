@@ -21,3 +21,16 @@ make test
 * `--recognitionTimeout`, number of seconds that program recognition executes for.
 
 -   --task tree --enumerationTimeout 10 -i 2 -c 2 --grammar pen
+
+### Server configuration
+
+I run things on the server using the following command:
+
+```
+singularity exec --cleanenv --bind .:$PWD --pwd=$PWD /scratch/sreejank/container.img bash dreamcoder/domains/grid/experiments.sh
+```
+
+Some notes/caveats:
+- `--cleanenv` is needed to avoid bringing in extraneous / invalid environment variables.
+- binding working directory to same name as $PWD is needed to ensure mlflow paths work.
+- In `experiments.sh`, I execute the script using a virtualenv for mlflow support; it was set up by symlinking system packages into a virtualenv, then installing mlflow into the virtualenv (a big hack).

@@ -110,7 +110,7 @@ class GridException(Exception):
 currdir = os.path.abspath(os.path.dirname(__file__))
 
 def tasks_from_grammar_boards(newGridTask):
-    with open(f'{currdir}/grammar_boards.pkl', 'rb') as f:
+    with open(f'{currdir}/tasks/grammar_boards.pkl', 'rb') as f:
         boards = pickle.load(f)
 
     for idx, (board, steps) in enumerate(boards.items()):
@@ -119,9 +119,9 @@ def tasks_from_grammar_boards(newGridTask):
          loc = next(zip(*np.where(start)))
          yield newGridTask(f'grammar_boards.pkl_{idx}', start=start, goal=board, location=loc)
 
-def tasks_people_gibbs(newGridTask, *, disconnected=False):
+def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/people_sampled_boards.npy'):
     import numpy as np
-    boards = np.load(f'{currdir}/people_sampled_boards.npy')
+    boards = np.load(fn)
     for idx, board in enumerate(boards):
         if disconnected and is_connected_shape(board):
             continue
@@ -131,6 +131,9 @@ def tasks_people_gibbs(newGridTask, *, disconnected=False):
         yield newGridTask(
             f'people_sampled_boards.npy_{idx}',
             start=start, goal=board, location=location)
+
+def tasks_people_gibbs_500(*args, **kwargs):
+    yield from tasks_people_gibbs(*args, **kwargs, fn=f'{currdir}/tasks/500_gsp_samples.npy')
 
 def tree_tasks(newGridTask):
     st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])
@@ -570,6 +573,8 @@ if __name__ == '__main__':
         grammar=tasks_from_grammar_boards,
         people_gibbs=tasks_people_gibbs,
         people_gibbs_discon=functools.partial(tasks_people_gibbs, disconnected=True),
+        people_gibbs_500=tasks_people_gibbs_500,
+        people_gibbs_discon_500=functools.partial(tasks_people_gibbs_500, disconnected=True),
         tree=tree_tasks,
         discon=discon_tasks,
         discon_no_curr=functools.partial(discon_tasks, curriculum=False),
@@ -617,16 +622,10 @@ if __name__ == '__main__':
 
             print('-' * 100 + '\n' * 5)
 
-            '''
-            dir = f'{currdir}/output'
-            try:
-                os.mkdir(dir)
-            except:
-                pass
-            fn = f'{dir}/output-task{taskname}-iter{iter}-grammar{grammar}-recog{arguments["useRecognitionModel"]}.bin'
-            joblib.dump(dict(result=result,train=train,arguments=arguments), fn)
-            mlflow.log_artifact(fn)
-            '''
+            with tempfile.TemporaryDirectory() as tmpdir:
+                # This is overwritten on every iteration, but that's ok b/c `result` has an internal log
+                joblib.dump(dict(result=result,train=train,arguments=arguments), f'{tmpdir}/output.bin')
+                mlflow.log_artifacts(tmpdir)
 
             # We do this on every iteration; the file just gets overwritten, but this lets us stay up-to-date.
             if log_file_path_for_mlflow:
