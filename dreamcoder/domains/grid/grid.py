@@ -6,8 +6,12 @@ import pickle, os
 import joblib
 from collections import namedtuple
 from dreamcoder.utilities import numberOfCPUs
-import mlflow
 import functools
+import tempfile
+
+import mlflow
+mlflow.set_tracking_uri("sqlite:///mlflow.db")
+mlflow.set_experiment("gibbs-500")
 
 import torch.nn as nn
 import torch.nn.functional as F
