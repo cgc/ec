@@ -11,7 +11,7 @@ import tempfile
 
 import mlflow
 mlflow.set_tracking_uri("sqlite:///mlflow.db")
-mlflow.set_experiment("gibbs-500")
+mlflow.set_experiment("gibbs-500-try_all_start_fix")
 
 import torch.nn as nn
 import torch.nn.functional as F
@@ -133,7 +133,7 @@ def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/
         location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
         start[location] = 1
         yield newGridTask(
-            f'people_sampled_boards.npy_{idx}',
+            f'{os.path.basename(fn)}_{idx}',
             start=start, goal=board, location=location)
 
 def tasks_people_gibbs_500(*args, **kwargs):
@@ -274,9 +274,18 @@ class GridState:
 
 
 class GridTask(Task):
+    incorrect_penalty = -1000
+
     def __init__(self, name, start, goal, location, *, invtemp=1., partial_progress_weight=0., try_all_start=False, settings=SETTINGS):
         assert start.shape == goal.shape
         assert location == (-1, -1) or (0 <= location[0] < start.shape[0] and 0 <= location[1] < start.shape[1])
+        if try_all_start:
+            if location != (-1, -1):
+                assert np.sum(start) == 1 and start[location] == 1, 'We make sure the tasks are simple, with only with marked location at the start location.'
+                location = (-1, -1)
+                start = np.zeros(start.shape)
+        if location == (-1, -1):
+            assert np.sum(start) == 0
         self.start = start
         self.goal = goal
         self.location = location
@@ -321,7 +330,7 @@ class GridTask(Task):
                 return NEGATIVEINFINITY
             num_not_done = (~final & goal).sum()
             return (
-                (0 if correct else -1000)
+                (0 if correct else GridTask.incorrect_penalty)
                 + self.invtemp * yh.reward
                 - self.partial_progress_weight * num_not_done)
 
@@ -329,13 +338,21 @@ class GridTask(Task):
             return self.invtemp * yh.reward
         return NEGATIVEINFINITY
 
+    def _score_for_all_locations(self, e, timeout=None):
+        return [
+            (
+                self._score_from_location(e, GridState(self.start, (-1, -1), settings=self.settings).setlocation((x, y)), timeout=timeout),
+                x,
+                y,
+            )
+            for x in range(self.start.shape[0])
+            for y in range(self.start.shape[1])
+        ]
+
     def logLikelihood(self, e, timeout=None):
         if self.try_all_start:
-            return max(
-                self._score_from_location(e, GridState(self.start, (-1, -1), settings=self.settings).setlocation((x, y)), timeout=timeout)
-                for x in range(self.start.shape[0])
-                for y in range(self.start.shape[1])
-            )
+            score, x, y = max(self._score_for_all_locations(e, timeout=timeout))
+            return score
         else:
             return self._score_from_location(e, GridState(self.start, self.location, settings=self.settings), timeout=timeout)
 
