@@ -130,14 +130,15 @@ def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/
     import numpy as np
     boards = np.load(fn)
     for idx, board in enumerate(boards):
-        if disconnected and is_connected_shape(board):
-            continue
         start = np.zeros(boards.shape[1:])
         location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
         start[location] = 1
-        yield newGridTask(
+        t = newGridTask(
             f'{os.path.basename(fn)}_{idx}',
             start=start, goal=board, location=location)
+        if disconnected and t.is_connected():
+            continue
+        yield t
 
 def tasks_people_gibbs_500(*args, **kwargs):
     yield from tasks_people_gibbs(*args, **kwargs, fn=f'{currdir}/tasks/500_gsp_samples.npy')
@@ -358,6 +359,9 @@ class GridTask(Task):
             return score
         else:
             return self._score_from_location(e, GridState(self.start, self.location, settings=self.settings), timeout=timeout)
+
+    def is_connected(self):
+        return is_connected_shape(self.goal)
 
 def parseGrid(s):
     from sexpdata import loads, Symbol
@@ -637,14 +641,19 @@ if __name__ == '__main__':
         for iter, result in enumerate(generator):
             # HACK: does this factor in recognition?
             total_hits = 0
+            total_discon_hits = 0
             for task in train:
                 es = result.frontiersOverTime[task][-1].entries
-                if any(e.logLikelihood > -500 for e in es):
+                if any(e.logLikelihood > GridTask.incorrect_penalty for e in es):
                     total_hits += 1
+                    if not task.is_connected():
+                        total_discon_hits += 1
                 v = max(e.logLikelihood for e in es) if es else -float('inf')
                 mlflow.log_metric(key=str(task), value=v, step=iter)
             print(f'Hits-Solutions {total_hits}/{len(train)}')
-            mlflow.log_metric(key="solved", value=total_hits, step=iter)
+            # Adding an underscore to have them sort to beginning in UI
+            mlflow.log_metric(key="_solved", value=total_hits, step=iter)
+            mlflow.log_metric(key="_solved_disconnected", value=total_discon_hits, step=iter)
 
             print('-' * 100 + '\n' * 5)
 
