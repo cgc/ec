@@ -21,7 +21,7 @@ function exp() {
 }
 
 for recogflag in --no-recognition --recognition; do
-  for batch in "" "--taskReranker randomShuffle --taskBatchSize 100 --seed $SEED"; do
+  for batch in ""; do
     for arity in 1; do
       for task in discon_no_curr people_gibbs_discon people_gibbs_discon_500 people_gibbs_500; do
         for prim in pen explicit_mark; do

@@ -95,8 +95,11 @@ class GridCNN(nn.Module):
         # Excluding trivial programs so we don't get confused about samples
         if str(p) == '(lambda $0)':
             return None
-        start_state=GridState(np.zeros((4,4)),GridCNN.fixed_location, settings=SETTINGS)
-        p1=executeGrid(p,start_state)
+        start = np.zeros((4,4))
+        if GridCNN.fixed_location != (-1, -1):
+            start[GridCNN.fixed_location] = 1
+        start_state=GridState(start, GridCNN.fixed_location, settings=SETTINGS)
+        p1=executeGrid(p, start_state)
         if p1 is None:
             print(f'non-trivial program had an execution error: {p}')
             return None
@@ -564,8 +567,10 @@ if __name__ == '__main__':
     )
     del arguments['DELETE_var']
 
+    # Making a copy to add to mlflow
     complete_arguments = dict(arguments)
 
+    # Make sure to add this to mlflow! Helps with debugging crashes.
     log_file_path_for_mlflow = arguments.pop('log_file_path_for_mlflow')
     taskname = arguments.pop('task')
     try_all_start = arguments.pop('try_all_start')
