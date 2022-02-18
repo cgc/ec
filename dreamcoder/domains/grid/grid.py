@@ -457,6 +457,7 @@ def _grid_with_penup(body):
 
 # TODO still not clear to me what types are doing in Python; how is this bound? Does it require definition in ocaml?
 tgrid_cont = baseType("grid_cont")
+CONTINUATION_TYPE = arrow(tgrid_cont, tgrid_cont)
 primitives_base = [
     Primitive("grid_left", arrow(tgrid_cont, tgrid_cont), _grid_left),
     Primitive("grid_right", arrow(tgrid_cont, tgrid_cont), _grid_right),
@@ -630,7 +631,7 @@ if __name__ == '__main__':
         p,
         # when doing grid_cont instead, we only consider $0
         # but when we only have type=tgrid_cont, then we get a nicer library for tree_tasks()
-        continuationType=arrow(tgrid_cont,tgrid_cont))
+        continuationType=CONTINUATION_TYPE)
 
     arguments['contextual'] = isinstance(g0, ContextualGrammar)
     generator = ecIterator(g0, train,

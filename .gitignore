@@ -34,3 +34,8 @@ tests/out/
 .ipynb_checkpoints
 .merlin
 dreamcoder/domains/grid/output
+env
+env_x86
+mlruns
+mlflow.db
+output.bin
