@@ -24,8 +24,8 @@ for recogflag in --recognition; do
   for batch in ""; do
     for arity in 1; do
       for task in people_gibbs_500; do
-        for prim in pen explicit_mark; do
-          for ppw in 10 0; do
+        for ppw in 10 0; do
+          for prim in pen explicit_mark; do
             max_jobs 2
             sleep 1 # adding this so jobs are ordered in output
             exp $recogflag --task $task --try_all_start --partial_progress_weight $ppw --grammar $prim --arity $arity $batch &
