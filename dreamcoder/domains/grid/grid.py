@@ -659,8 +659,9 @@ if __name__ == '__main__':
             print('-' * 100 + '\n' * 5)
 
             with tempfile.TemporaryDirectory() as tmpdir:
-                # This is overwritten on every iteration, but that's ok b/c `result` has an internal log
-                joblib.dump(dict(result=result,train=train,arguments=arguments), f'{tmpdir}/output.bin')
+                # We need to log every iteration since the recognition model / hidden state
+                # isn't saved from iter to iter.
+                joblib.dump(dict(result=result,train=train,arguments=arguments), f'{tmpdir}/output-iter{iter}.bin')
                 mlflow.log_artifacts(tmpdir)
 
             # We do this on every iteration; the file just gets overwritten, but this lets us stay up-to-date.
