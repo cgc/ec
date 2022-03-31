@@ -3,6 +3,7 @@ from dreamcoder.program import *
 from dreamcoder.dreamcoder import *
 from dreamcoder.utilities import *
 import pickle, os
+import sys
 import joblib
 from collections import namedtuple
 from dreamcoder.utilities import numberOfCPUs
@@ -553,7 +554,7 @@ def parseArgs(parser):
     parser.add_argument("--partial_progress_weight", dest="partial_progress_weight", default=0., type=float)
     boolarg('try_all_start', False)
 
-if __name__ == '__main__':
+def main():
     arguments = commandlineArguments(
         enumerationTimeout=120,
         solver='ocaml',
@@ -667,3 +668,58 @@ if __name__ == '__main__':
             # We do this on every iteration; the file just gets overwritten, but this lets us stay up-to-date.
             if log_file_path_for_mlflow:
                 mlflow.log_artifact(log_file_path_for_mlflow)
+
+
+def try_exhaustive_enumeration():
+    import itertools
+
+    # If we're not in exhaustive enumeration mode, then skip.
+    if sys.argv[1] != 'enumerate':
+        return
+
+    with mlflow.start_run():
+        m = joblib.load(sys.argv[2])
+        mlflow.log_params(dict(arguments=sys.argv))
+
+        all_goals = [
+            np.array(board).reshape((4, 4))
+            for board in itertools.product((0, 1), repeat=16)
+        ]
+
+        tasks = [
+            GridTask(
+                f'exhaustive{i}',
+                start=np.zeros((4, 4)),
+                goal=goal,
+                location=(-1, -1),
+                try_all_start=True,
+                partial_progress_weight=10.,
+                # invtemp is default value of 1.
+            )
+            for i, goal in enumerate(all_goals)
+        ]
+
+        r = m['result'].recognitionModel.enumerateFrontiers(
+            tasks,
+            CPUs=40,
+            solver='ocaml',
+            maximumFrontier=5,
+            enumerationTimeout=2, # arbitrary?
+            evaluationTimeout=1., # seems like the default
+            # this makes task run by themselves, but that already
+            # happens b/c grammars are per-task with recognition
+            testing=False,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            joblib.dump(
+                dict(result=r, tasks=tasks),
+                f'{tmpdir}/exhaustive-enum.bin')
+            mlflow.log_artifacts(tmpdir)
+
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    try_exhaustive_enumeration()
+    main()
