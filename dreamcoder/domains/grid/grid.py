@@ -304,7 +304,7 @@ class GridTask(Task):
     def specialTask(self):
         # Computing this dynamically since we modify the task when there's the option to set location.
         return ("GridTask", {
-            "start": self.start.astype(np.bool).tolist(), "goal": self.goal.astype(np.bool).tolist(),
+            "start": self.start.astype(bool).tolist(), "goal": self.goal.astype(bool).tolist(),
             "location": tuple(map(int, self.location)),
             "invtemp": self.invtemp,
             "partial_progress_weight": self.partial_progress_weight,
@@ -676,6 +676,8 @@ def try_exhaustive_enumeration():
     # If we're not in exhaustive enumeration mode, then skip.
     if sys.argv[1] != 'enumerate':
         return
+
+    mlflow.set_experiment("exhaustive-enumeration")
 
     with mlflow.start_run():
         m = joblib.load(sys.argv[2])
