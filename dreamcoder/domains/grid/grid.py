@@ -671,52 +671,27 @@ def main():
 
 
 def try_exhaustive_enumeration():
-    import itertools
 
     # If we're not in exhaustive enumeration mode, then skip.
     if sys.argv[1] != 'enumerate':
         return
 
     mlflow.set_experiment("exhaustive-enumeration")
+    model_output_path = sys.argv[2]
 
     with mlflow.start_run():
-        m = joblib.load(sys.argv[2])
+        m = joblib.load(model_output_path)
         mlflow.log_params(dict(arguments=sys.argv))
 
-        all_goals = [
-            np.array(board).reshape((4, 4))
-            for board in itertools.product((0, 1), repeat=16)
-        ]
-
-        tasks = [
-            GridTask(
-                f'exhaustive{i}',
-                start=np.zeros((4, 4)),
-                goal=goal,
-                location=(-1, -1),
-                try_all_start=True,
-                partial_progress_weight=10.,
-                # invtemp is default value of 1.
-            )
-            for i, goal in enumerate(all_goals)
-        ]
-
-        r = m['result'].recognitionModel.enumerateFrontiers(
-            tasks,
-            CPUs=40,
-            solver='ocaml',
-            maximumFrontier=5,
-            enumerationTimeout=2, # arbitrary?
-            evaluationTimeout=1., # seems like the default
-            # this makes task run by themselves, but that already
-            # happens b/c grammars are per-task with recognition
-            testing=False,
-        )
+        import exhaustive_enum
+        tasks = exhaustive_enum.create_all_grid_tasks()
+        result = exhaustive_enum.solve(m, tasks, CPUs=40, enumerationTimeout=4)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            joblib.dump(
-                dict(result=r, tasks=tasks),
-                f'{tmpdir}/exhaustive-enum.bin')
+            joblib.dump(dict(
+                result,
+                model_output_path=model_output_path,
+            ), f'{tmpdir}/exhaustive-enum.bin')
             mlflow.log_artifacts(tmpdir)
 
     sys.exit(0)

@@ -256,6 +256,7 @@ def solveForTask_ocaml(_=None,
                        timeout=None,
                        testing=None, # FIXME: unused
                        likelihoodModel=None,
+                       hide_stderr=False,
                        evaluationTimeout=None, maximumFrontiers=None):
 
     import json
@@ -295,7 +296,11 @@ def solveForTask_ocaml(_=None,
 
     try:
         solver_file = os.path.join(get_root_dir(), 'solver')
+        kwargs = {}
+        if hide_stderr:
+            kwargs['stderr'] = subprocess.DEVNULL
         process = subprocess.Popen(solver_file,
+                                   **kwargs,
                                    stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE)
         response, error = process.communicate(bytes(message, encoding="utf-8"))
