@@ -127,10 +127,23 @@ def tasks_from_grammar_boards(newGridTask):
          loc = next(zip(*np.where(start)))
          yield newGridTask(f'grammar_boards.pkl_{idx}', start=start, goal=board, location=loc)
 
-def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/people_sampled_boards.npy'):
-    import numpy as np
+def _make_board_set_contains(boards):
+    def board_key(board):
+        assert len(board.shape) == 2
+        return tuple(map(tuple, board))
+
+    board_set = {board_key(board) for board in boards}
+
+    return lambda board: board_key(board) in board_set
+
+def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/people_sampled_boards.npy', exclude_fn=None):
     boards = np.load(fn)
+    if exclude_fn is not None:
+        exclude_set_contains = _make_board_set_contains(np.load(exclude_fn))
     for idx, board in enumerate(boards):
+        if exclude_fn is not None:
+            if exclude_set_contains(board):
+                continue
         start = np.zeros(boards.shape[1:])
         location = list(zip(*np.where(board)))[0] # arbitrarily pick a start spot
         start[location] = 1
@@ -142,7 +155,7 @@ def tasks_people_gibbs(newGridTask, *, disconnected=False, fn=f'{currdir}/tasks/
         yield t
 
 def tasks_people_gibbs_500(*args, **kwargs):
-    yield from tasks_people_gibbs(*args, **kwargs, fn=f'{currdir}/tasks/500_gsp_samples.npy')
+    yield from tasks_people_gibbs(*args, **kwargs, fn=f'{currdir}/tasks/500_gsp_samples.npy', exclude_fn=f'{currdir}/tasks/gsp_4x4_sample.npy')
 
 def tree_tasks(newGridTask):
     st = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0]])

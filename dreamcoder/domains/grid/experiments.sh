@@ -17,18 +17,18 @@ function exp() {
   # by other concurrent processes.
   LOGFILE=logoutput/$(cat /dev/urandom | tr -cd 'a-f0-9' | head -c 32).log
   touch $LOGFILE
-  command singularity-venv/bin/python3 -m dreamcoder.domains.grid.grid -c 1 -i 10 --enumerationTimeout 120 "$@" --log_file_path_for_mlflow $LOGFILE |& tee $LOGFILE
+  command singularity-venv/bin/python3 -m dreamcoder.domains.grid.grid -c 1 -i 4 --enumerationTimeout 120 "$@" --log_file_path_for_mlflow $LOGFILE |& tee $LOGFILE
 }
 
 for recogflag in --recognition; do
-  for batch in ""; do
+  for structurePenalty in 1.5 0.5 1.0; do
     for arity in 1; do
       for task in people_gibbs_500; do
-        for ppw in 10 0; do
+        for ppw in 10; do
           for prim in pen explicit_mark; do
             max_jobs 2
             sleep 1 # adding this so jobs are ordered in output
-            exp $recogflag --task $task --try_all_start --partial_progress_weight $ppw --grammar $prim --arity $arity $batch &
+            exp $recogflag --task $task --try_all_start --partial_progress_weight $ppw --grammar $prim --arity $arity --structurePenalty $structurePenalty &
           done
         done
       done
