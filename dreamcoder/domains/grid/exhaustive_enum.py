@@ -1,4 +1,4 @@
-from grid import *
+from .grid import *
 
 
 def create_all_grid_tasks():

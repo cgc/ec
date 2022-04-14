@@ -696,7 +696,7 @@ def try_exhaustive_enumeration():
         m = joblib.load(model_output_path)
         mlflow.log_params(dict(arguments=sys.argv))
 
-        import exhaustive_enum
+        from . import exhaustive_enum
         tasks = exhaustive_enum.create_all_grid_tasks()
         result = exhaustive_enum.solve(m, tasks, CPUs=40, enumerationTimeout=4)
 
