@@ -247,27 +247,27 @@ def test_is_connected_shape():
         [0, 1, 1, 1],
     ]))
 
-def test_make_test_set_contains():
-    tsc = grid._make_test_set_contains(np.array([
+def test_make_board_set_contains():
+    bsc = grid._make_board_set_contains(np.array([
         [
             [0, 1],
             [0, 0],
         ],
     ]))
-    assert tsc(np.array([
+    assert bsc(np.array([
         [0, 1],
         [0, 0],
     ]))
     # some random cases
-    assert not tsc(np.array([
+    assert not bsc(np.array([
         [0, 0],
         [1, 0],
     ]))
-    assert not tsc(np.array([
+    assert not bsc(np.array([
         [0, 0],
         [0, 0],
     ]))
-    assert not tsc(np.array([
+    assert not bsc(np.array([
         [1, 1],
         [1, 1],
     ]))
