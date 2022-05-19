@@ -698,7 +698,7 @@ def try_exhaustive_enumeration():
 
         from . import exhaustive_enum
         tasks = exhaustive_enum.create_all_grid_tasks()
-        result = exhaustive_enum.solve(m, tasks, CPUs=40, enumerationTimeout=4)
+        result = exhaustive_enum.solve(m, tasks, CPUs=40, enumerationTimeout=30)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             joblib.dump(dict(

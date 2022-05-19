@@ -103,7 +103,7 @@ def solve(model_output, tasks, *, CPUs, enumerationTimeout):
     rm = model_output['result'].recognitionModel
 
     results = Parallel(n_jobs=CPUs, verbose=5)(
-        delayed(recognitionEnumeration)(rm, task, enumerationTimeout=enumerationTimeout)
+        delayed(recognitionEnumeration)(rm, task, enumerationTimeout=enumerationTimeout, maximumFrontiers=1)
         for task in tasks
     )
 

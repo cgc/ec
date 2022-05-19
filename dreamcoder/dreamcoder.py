@@ -170,6 +170,7 @@ def ecIterator(grammar, tasks,
                evaluationTimeout=1.0,  # seconds
                taskBatchSize=None,
                taskReranker='default',
+               compressionCPUs=None,
                CPUs=1,
                cuda=False,
                message="",
@@ -466,7 +467,7 @@ def ecIterator(grammar, tasks,
         if useDSL and not(noConsolidation):
             eprint(f"Currently using this much memory: {getThisMemoryUsage()}")
             grammar = consolidate(result, grammar, topK=topK, pseudoCounts=pseudoCounts, arity=arity, aic=aic,
-                                  structurePenalty=structurePenalty, compressor=compressor, CPUs=CPUs,
+                                  structurePenalty=structurePenalty, compressor=compressor, CPUs=compressionCPUs or CPUs,
                                   iteration=j)
             eprint(f"Currently using this much memory: {getThisMemoryUsage()}")
         else:
@@ -776,6 +777,9 @@ def commandlineArguments(_=None,
     parser.add_argument("-c", "--CPUs",
                         default=CPUs,
                         help="default: %d" % CPUs,
+                        type=int)
+    parser.add_argument("--compressionCPUs",
+                        default=0,
                         type=int)
     parser.add_argument("--no-cuda",
                         action="store_false",

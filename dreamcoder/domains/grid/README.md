@@ -1,5 +1,5 @@
 
-To run the grid domain, use the below command, with optional command line arguments:
+To run Dreamcoder on the grid domain, use the below command, with optional command line arguments:
 ```
 python -m dreamcoder.domains.grid.grid --task tree --enumerationTimeout 30 -i 2 -c 2
 ```
@@ -20,17 +20,16 @@ make test
 * `--enumerationTimeout`, number of seconds that program enumeration executes for.
 * `--recognitionTimeout`, number of seconds that program recognition executes for.
 
--   --task tree --enumerationTimeout 10 -i 2 -c 2 --grammar pen
+### Running on server
 
-### Server configuration
-
-I run things on the server using the following command:
+I run things on the server using the following command from the project root directory:
 
 ```
-singularity exec --cleanenv --bind .:$PWD --pwd=$PWD /scratch/sreejank/container.img bash dreamcoder/domains/grid/experiments.sh
+singularity exec --cleanenv --bind .:$PWD --pwd=$PWD $DREAMCODER_IMG bash dreamcoder/domains/grid/experiments.sh
 ```
 
 Some notes/caveats:
 - `--cleanenv` is needed to avoid bringing in extraneous / invalid environment variables.
+- You'll need to first rebuild the OCaml binaries to incorporate new code in `grid.ml`.
 - binding working directory to same name as $PWD is needed to ensure mlflow paths work.
 - In `experiments.sh`, I execute the script using a virtualenv for mlflow support; it was set up by symlinking system packages into a virtualenv, then installing mlflow into the virtualenv (a big hack).
